@@ -19,7 +19,7 @@ cafeio = cafe_io()
 
 class CAFE_param_generator:
 
-    def __init__(self, spec, inparfile, optfile, cafe_path=None):
+    def __init__(self, spec, inpars, inopts, cafe_path=None):
 
         # The data is read from a spectrum1D object
         self.wave = spec.spectral_axis.value
@@ -28,8 +28,8 @@ class CAFE_param_generator:
         self.z = spec.redshift.value
         
         # Read in and opt files into dictionaries
-        self.inpars = cafeio.read_inifile(inparfile)
-        self.inopts = cafeio.read_inifile(optfile)
+        self.inpars = inpars
+        self.inopts = inopts
 
         tablePath, _ = cafeio.init_paths(self.inopts, cafe_path=cafe_path)
         self.tablePath = tablePath
@@ -742,7 +742,7 @@ class CAFE_prof_generator:
     optfile:
 
     """
-    def __init__(self, spec, inparfile, optfile, phot_dict, cafe_path='../CAFE/'):
+    def __init__(self, spec, inpars, inopts, phot_dict, cafe_path='../CAFE/'):
         ## Read spec
         wave = spec.spectral_axis.value
         flux = spec.flux.value
@@ -754,8 +754,8 @@ class CAFE_prof_generator:
         self.z = z
         
        # Read optfile
-        self.inpars = cafeio.read_inifile(inparfile)
-        self.inopts = cafeio.read_inifile(optfile)
+        self.inpars = inpars
+        self.inopts = inopts
 
         tablePath, _ = cafeio.init_paths(self.inopts, cafe_path=cafe_path)
         self.tablePath = tablePath
@@ -1362,19 +1362,29 @@ def parobj2df(parobj):
 
 def parcube2df(parcube, x, y):
     """
-        Convert a parameter object to a DataFrame
-        """
-    key_list = []
+    Convert a parameter object to a DataFrame
+    """
     value_list = []
     stderr_list = []
-    
-    for z, key in enumerate(parcube['PARNAME'].data['parname']):
+    min_list = []
+    max_list = []
+    expr_list = []
+
+    for z in range(len(parcube['PARNAME'].data['parname'])):
         value_list.append(parcube['VALUE'].data[z,y,x])
         stderr_list.append(parcube['STDERR'].data[z,y,x])
-        
+        min_list.append(parcube['MIN'].data[z,y,x])
+        max_list.append(parcube['MAX'].data[z,y,x])
+        expr_list.append(parcube['EXPR'].data['expr'])
+    
     df = pd.DataFrame({'parname': list(parcube['PARNAME'].data['parname']), 
                        'value': value_list, 
-                       'stderr': stderr_list})
+                       'stderr': stderr_list,
+                       'min': min_list,
+                       'max': max_list,
+                       'expr': list(parcube['EXPR'].data['expr']),
+                       })
+    
     df.set_index('parname', inplace=True)
     
     return df

@@ -44,7 +44,7 @@ class cafe_io:
                     os.mkdir(inopts['PATHS']['OUTPATH'])
                 outPath = inopts['PATHS']['OUTPATH']
             else:
-                outPath = cafe_path+'output/'
+                outPath = cafe_path+'_output/'
         else:
             if not os.path.exists(output_path):
                 os.mkdir(output_path)
@@ -63,7 +63,7 @@ class cafe_io:
     # @file_name: The fits filename . (string)
     ########### --> Return res_spec1d  ############################
         
-    def read_cretacube(self, file_name, extract):
+    def read_cretacube(self, file_name, flux_key, flux_unc_key):
         
         cube = fits.open(file_name)
         cube.info()
@@ -71,8 +71,8 @@ class cafe_io:
         self.cube = cube
         self.header = cube['FLUX'].header
         self.waves = cube['Wave'].data
-        self.fluxes = cube[extract].data
-        self.flux_uncs = cube[extract.replace('Flux','Err')].data
+        self.fluxes = cube[flux_key].data
+        self.flux_uncs = cube[flux_unc_key].data
         self.masks = cube['DQ'].data
         self.bandnames = cube['Band_name'].data['Band_name']
         if self.fluxes.ndim != 1:
@@ -93,7 +93,7 @@ class cafe_io:
     ###############################################################################   
     
     @staticmethod
-    def customFITSReader(file_name, extract): 
+    def customFITSReader(file_name, flux_key='Flux_st', flux_unc_key='Err_st'): 
         
         # Options for spec are:
         # 'ap': Aperture flux
@@ -106,8 +106,8 @@ class cafe_io:
         for i in range(len(hdu_list[1].data)):
             table = hdu_list[1].data
             wave = table["Wave"] * u.um
-            flux = table[extract][0] * u.Jy
-            error = table[extract.replace('Flux','Err')][0] * u.Jy
+            flux = table[flux_key][0] * u.Jy
+            error = table[flux_unc_key][0] * u.Jy
             DQ = table["DQ"][0]
 
             metad =  hdu_list[1].header[str(i)]
@@ -274,9 +274,8 @@ class cafe_io:
             config.write(outpars)
 
 
-
     @staticmethod
-    def pah_table(parcube, compdict=None, x=0, y=0, parobj=False, 
+    def pah_table(parcube, fnu_unit=u.Jy, compdict=None, x=0, y=0, parobj=False, 
                   pah_complex=True, pah_obs=False, savetbl=None):
         """
         Output the table of PAH integrated powers
@@ -417,7 +416,8 @@ class cafe_io:
         
                 eqw_list.append(EQW)
 
-                
+        import ipdb
+        ipdb.set_trace()
         if (compdict is None) & (pah_obs is False): # No EQW can be provided
             all_pah_df = pd.DataFrame({'pah_name': pah_name, 
                                        'pah_lam': pah_lam_list, 
@@ -652,6 +652,11 @@ class cafe_io:
     
         pahs = pah_complex_df if pah_complex is True else all_pah_df
     
+        # Output the correct PAH strength based on fnu_unit
+        columns_to_update = [col for col in pahs.columns if 'strength' in col]
+
+        pahs[columns_to_update] = pahs[columns_to_update] * fnu_unit.to(u.Jy)
+
         if savetbl is not None:
             pahs_reset = pahs.reset_index()
             t = Table.from_pandas(pahs_reset)
@@ -671,7 +676,7 @@ class cafe_io:
 
     
     @staticmethod
-    def line_table(parcube, compdict=None, x=0, y=0, parobj=False,
+    def line_table(parcube, fnu_unit=u.Jy, compdict=None, x=0, y=0, parobj=False,
                    line_obs=False, savetbl=None):
         """
         Output the table of line integrated powers
@@ -788,6 +793,11 @@ class cafe_io:
     
         all_line_df.set_index('line_name', inplace=True)
 
+        # Output the correct line strength based on fnu_unit
+        columns_to_update = [col for col in all_line_df.columns if 'strength' in col]
+
+        all_line_df[columns_to_update] = all_line_df[columns_to_update] * fnu_unit.to(u.Jy)
+
         if savetbl is not None:
             lines_reset = all_line_df.reset_index()
             t = Table.from_pandas(lines_reset)
@@ -804,6 +814,7 @@ class cafe_io:
             print("Line table is saved in: "+savetbl)
 
         return all_line_df
+        
 
     @staticmethod
     def save_asdf(cafe, pah_tbl=True, line_tbl=True, file_name=None, **kwargs):

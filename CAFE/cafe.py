@@ -27,16 +27,24 @@ cafeio = cafe_io()
 
 #import ipdb
 
-def cafe_grinder(self, params, spec, phot):
+def cafe_grinder(cafe_model, params, spec, phot):
     """
-    params [lmfit.parameter() object]: parameters of the model
-    spec [dictionary]: spectrum/a to be fitted
-    phot [dictionary]: photometry to be fitted
+    Performs iterative fitting of spectral/photometric data.
+    
+    Parameters
+    ----------
+    cafe_model : specmod
+        The CAFE spectral modeling object containing configuration and profiles
+    params : lmfit.Parameters
+        Parameters of the model
+    spec : dict
+        Spectrum to be fitted with keys 'wave', 'flux', 'flux_unc'
+    phot : dict or None
+        Photometry to be fitted
     """
-
     ### Read in global fit settings
-    ftol = self.inopts['FIT OPTIONS']['FTOL']
-    nproc = self.inopts['FIT OPTIONS']['NPROC']
+    ftol = cafe_model.inopts['FIT OPTIONS']['FTOL']
+    nproc = cafe_model.inopts['FIT OPTIONS']['NPROC']
     
     acceptFit = False
     ### Limit the number of times the fit can be rerun to avoid infinite loop
@@ -47,14 +55,14 @@ def cafe_grinder(self, params, spec, phot):
     while acceptFit is False:
         
         start = time.time()
-        print('Iteration '+str(niter)+' / '+str(self.inopts['FIT OPTIONS']['MAX_LOOPS'])+'(max):', datetime.datetime.now(), '-------------')
+        print('Iteration '+str(niter)+' / '+str(cafe_model.inopts['FIT OPTIONS']['MAX_LOOPS'])+'(max):', datetime.datetime.now(), '-------------')
         
         old_params = copy.copy(params) # Parameters of the previous iteration
 
         ### Note that which fitting method is faster here is pretty uncertain, changes by target
         #method = 'leastsq'
         method = 'least_squares' #'nelder' if len(spec['wave']) >= 10000 else 'least_squares'
-        fitter = lm.Minimizer(chisquare, params, nan_policy='omit', fcn_args=(spec, phot, self.cont_profs, show))
+        fitter = lm.Minimizer(chisquare, params, nan_policy='omit', fcn_args=(spec, phot, cafe_model.cont_profs, show))
         
         try:
             result = fitter.minimize(method=method, ftol=ftol, max_nfev=200*(len(params)+1))
@@ -69,14 +77,14 @@ def cafe_grinder(self, params, spec, phot):
             fit_params = copy.copy(result.params) # parameters of the current iteration that will not be changed
             params = result.params # Both params AND result.params will be modified by check_fit_parameters
             
-            acceptFit = check_fit_pars(self, spec['wave'], spec['flux_unc'], fit_params, params, old_params, result.errorbars)
+            acceptFit = check_fit_pars(cafe_model, spec['wave'], spec['flux_unc'], fit_params, params, old_params, result.errorbars)
             
         else:
             end = time.time()
             raise RuntimeError('The fitter reached the maximum number of function evaluations after', result.nfev, 'steps in', np.round(end-start, 2)/60., 'minutes')
             acceptFit = False
             
-        if self.inopts['FIT OPTIONS']['FIT_CHK'] and niter < self.inopts['FIT OPTIONS']['MAX_LOOPS']:
+        if cafe_model.inopts['FIT OPTIONS']['FIT_CHK'] and niter < cafe_model.inopts['FIT OPTIONS']['MAX_LOOPS']:
             if acceptFit is True:
                 print('Successful fit -------------------------------------------------')
             else:
@@ -127,6 +135,24 @@ class cubemod:
         self.result_file_name = self.parcube_name.replace('_parcube', '')
         #parcube.close()
 
+    # This perhaps can be merged with the read_parcube_file above
+    def input_param(self,
+                    inparfile,
+                    optfile,
+                    init_parcube=False,
+                    cont_profs=None,
+                    ):
+        """
+        Function to read in the init parameters used in the fit.
+        """
+        self.inparfile = inparfile
+        self.optfile = optfile
+
+        self.inpars = cafeio.read_inifile(inparfile)
+        self.inopts = cafeio.read_inifile(optfile)
+
+        self.init_parcube = init_parcube
+        self.cont_profs = cont_profs
 
 
     def read_cube(self, file_name, file_dir='./extractions/', extract='Flux_st', trim=True, keep_next=False, z=None):
@@ -179,8 +205,6 @@ class cubemod:
     
 
     def fit_cube(self,
-                 inparfile,
-                 optfile,
                  output_path=None,
                  fit_pattern='default',
                  init_parcube=False,
@@ -202,15 +226,12 @@ class cubemod:
         wave, flux, flux_unc, bandname, mask = mask_spec(self,ind_seq[1][0],ind_seq[0][0])
         spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
 
-        self.inpars = cafeio.read_inifile(inparfile)
-        self.inopts = cafeio.read_inifile(optfile)
-
         #self.inpar_fns = np.full((self.ny, self.nx), '')
         #self.inpar_fns[ind_seq[0][0], ind_seq[1][0]] = inparfile  # (y,x)
 
         # Initialize CAFE param generator for the highest SNR spaxel
         print('Generating initial/full parameter object with all potential lines')        
-        param_gen = CAFE_param_generator(spec, inparfile, optfile, cafe_path=self.cafe_dir)
+        param_gen = CAFE_param_generator(spec, self.inpars, self.inopts, cafe_path=self.cafe_dir)
         # These are keywords used by deeper layers of cafe
         _, outPath = cafeio.init_paths(self.inopts, cafe_path=self.cafe_dir, file_name=self.result_file_name, output_path=output_path)
         self.outPath = outPath
@@ -258,11 +279,11 @@ class cubemod:
             
             print('##############################################################################################################')
             print('Regenerating parameter object for current spaxel:',np.flip(snr_ind), '(', spax, '/', len(ind_seq[0]), ')')        
-            param_gen = CAFE_param_generator(spec, inparfile, optfile, cafe_path=self.cafe_dir)
+            param_gen = CAFE_param_generator(spec, self.inpars, self.inopts, cafe_path=self.cafe_dir)
             init_params = param_gen.make_parobj(force_all=force_all_lines)
             
             print('Regenerating continuum profiles')
-            prof_gen = CAFE_prof_generator(spec, inparfile, optfile, None, cafe_path=self.cafe_dir)
+            prof_gen = CAFE_prof_generator(spec, self.inpars, self.inopts, None, cafe_path=self.cafe_dir)
             self.cont_profs = prof_gen.make_cont_profs()
             
             #if spax == 1:
@@ -370,11 +391,11 @@ class cubemod:
         
         # Initiate CAFE param generator and make parameter file
         print('Generating continuum profiles for guess model from the .ini file')
-        param_gen = CAFE_param_generator(spec, inparfile, optfile, cafe_path=self.cafe_dir)
+        param_gen = CAFE_param_generator(spec, self.inpars, self.inopts, cafe_path=self.cafe_dir)
         params = param_gen.make_parobj(force_all=force_all_lines)
 
         # Initiate CAFE profile loader and make cont_profs
-        prof_gen = CAFE_prof_generator(spec, inparfile, optfile, None, cafe_path=self.cafe_dir)
+        prof_gen = CAFE_prof_generator(spec, self.inpars, self.inopts, None, cafe_path=self.cafe_dir)
         cont_profs = prof_gen.make_cont_profs()
 
         # Scale continuum profiles with parameters and get spectra
@@ -403,7 +424,7 @@ class cubemod:
             spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
             spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc}
 
-            prof_gen = CAFE_prof_generator(spec, inparfile, optfile, None, cafe_path=self.cafe_dir)
+            prof_gen = CAFE_prof_generator(spec, self.inpars, self.inopts, None, cafe_path=self.cafe_dir)
             cont_profs = prof_gen.make_cont_profs()
 
             CompFluxes, CompFluxes_0, extComps, e0, tau0, vgrad = get_model_fluxes(params, wave, cont_profs, comps=True)
@@ -472,35 +493,72 @@ class specmod:
         #parcube.close()
 
 
-    def read_spec(self, file_name, xy=None, file_dir='./extractions/', extract='Flux_st', trim=True,
-                  keep_next=False, z=0., is_SED=False, read_columns=None, flux_unc=None,
-                  wave_min=None, wave_max=None, rwave_min=None, rwave_max=None):
-        """
-        file_name: [string] Name of the file to be read. It can be a plain text file (.txt, .dat) with wavelength, flux and
-                   flux uncertainty columns, a .csv file from CRETA, or a .fits cube from CRETA
-        xy:        [2-element touple] If the input is a cube, this specifies the spaxel that is read
-        file_dir:  [string] The directory where the file is
-        extract:   [string] The name of the extraction to be used when importing a CRETA cube (default: stitched spectrum)
-        trim:      [bool] Whether to trim overlapping wavelengths (only available for spectra extracted with CRETA)
-        keep_next: [bool] If trim=True, whether to keep the longer wavelength data/band instead of the shorter wavelength one
-        z:         [float] redshift of the source
-        is_SED:    [bool] Whether the spectrum is SED-like, i.e., it has an unknown, low resolution (active but currently not supported)
-        read_columns: [string list] If the input is a table with many columns, this specifies the names of the columns to be read
-                      Usually, 'wave', 'flux', and 'flux_unc'
-        flux_unc:  [float] If read_columns is specified, this keyword allows override the uncertainty by specifying
-                   a relative error wrt the flux. I.e., flux_unc=0.2 will force the errors to be 20% of the flux
-        wave_min:  [float] Minimum observed wavelength to be kept in the spectrum
-        wave_max:  [float] Maximum observed wavelength to be kept in the spectrum
-        rwave_min: [float] Minimum rest-frame wavelength to be kept in the spectrum
-        rwave_max: [float] Maximum rest-frame wavelength to be kept in the spectrum
+    def read_spec(self, file_name, xy=None, file_dir='./extractions/', flux_key='Flux_st', flux_unc_key='ERR_st',
+                  trim=True, keep_next=False, z=0., is_SED=False, read_columns=None, flux_unc=None,
+                  wave_min=None, wave_max=None, rwave_min=None, rwave_max=None, fnu_scale_to='Jy'):
+        
+        """Read and process spectral data from various file formats.
+
+        Parameters
+        ----------
+        file_name : str
+            Name of the input file. Supported formats:
+            - Plain text (.txt, .dat) with wavelength, flux and uncertainty columns
+            - CSV file from CRETA
+            - FITS cube from CRETA
+        xy : tuple, optional
+            (x,y) coordinates of spaxel to extract when reading a FITS cube
+        file_dir : str, default: './extractions/'
+            Directory containing the input file
+        flux_key : str, default: 'Flux_st'
+            Column name for flux values in the input files
+        flux_unc_key : str, default: 'ERR_st'
+            Column name for flux uncertainties in the input files
+        trim : bool, default: True
+            Whether to trim overlapping wavelengths in CRETA spectra
+        keep_next : bool, default: False
+            If trim=True, whether to keep longer wavelength data in overlaps
+        z : float, default: 0.
+            Source redshift
+        is_SED : bool, default: False
+            Whether input is a low-resolution SED (currently unsupported)
+        read_columns : list of str, optional
+            Names of columns to read from table input ('wave', 'flux', 'flux_unc')
+        flux_unc : float, optional
+            Override flux uncertainties with this fraction of flux values
+        wave_min : float, optional
+            Minimum observed wavelength to keep
+        wave_max : float, optional
+            Maximum observed wavelength to keep  
+        rwave_min : float, optional
+            Minimum rest-frame wavelength to keep
+        rwave_max : float, optional
+            Maximum rest-frame wavelength to keep
+        fnu_scale_to : str, default: 'Jy'
+            Unit to scale flux density to make the values approximately unity ('Jy', 'mJy', 'uJy', or 'nJy'). 
+
+        Notes
+        -----
+        wave_min/wave_max and rwave_min/rwave_max cannot be used simultaneously
         """
         
         if file_dir == 'input/data/': 
             file_dir = self.cafe_dir + file_dir
 
         print('Spec data:',file_dir+file_name)
+
+        # Set flux density unit
+        if fnu_scale_to == 'Jy':
+            self.fnu_unit = u.Jy
+        if fnu_scale_to == 'mJy':
+            self.fnu_unit = u.mJy
+        if fnu_scale_to == 'uJy':
+            self.fnu_unit = u.uJy
+        if fnu_scale_to == 'nJy':
+            self.fnu_unit = u.nJy
+
         try:
-            cube = cafeio.read_cretacube(file_dir+file_name, extract)
+            cube = cafeio.read_cretacube(file_dir+file_name, flux_key, flux_unc_key)
         except:
             hdu = fits.PrimaryHDU()
             dummy = fits.ImageHDU(np.full(1,np.nan), name='Flux')
@@ -509,7 +567,7 @@ class specmod:
             hdulist.writeto('./dummy.fits', overwrite=True)
             cube = fits.open('./dummy.fits')
             try:
-                spec = cafeio.customFITSReader(file_dir+file_name, extract) # Returns a spectrum1D
+                spec = cafeio.customFITSReader(file_dir+file_name, flux_key, flux_unc_key) # Returns a spectrum1D
             except:
                 try:
                     from astropy.table import Table
@@ -588,7 +646,8 @@ class specmod:
 
         self.file_name = file_name #cube.cube.filename().split('/')[-1]
         self.result_file_name = ''.join(self.file_name.split('.')[0:-1])
-        self.extract = extract
+        self.flux_key = flux_key
+        self.flux_unc_key = flux_unc_key
         
         # Remove the overlapping wavelengths between the spectral modules
         val_inds = trim_overlapping(cube.bandnames, keep_next) if trim == True else np.full(len(cube.waves), True)
@@ -624,7 +683,7 @@ class specmod:
         self.z = z
         self.waves = waves / (1+z)
         self.fluxes = fluxes / (1+z)
-        self.flux_uncs = flux_uncs / (1+z)   
+        self.flux_uncs = flux_uncs / (1+z)
         self.masks = masks
         self.bandnames = bandnames
         self.header = header
@@ -651,10 +710,26 @@ class specmod:
         self.pwidths = tab[:,4].astype(float) / (1+self.z)
 
 
+    def input_param(self,
+                    inparfile,
+                    optfile,
+                    init_parcube=False,
+                    cont_profs=None,
+                    ):
+        """
+        Function to read in the init parameters used in the fit.
+        """
+        self.inparfile = inparfile
+        self.optfile = optfile        
+
+        self.inpars = cafeio.read_inifile(inparfile)
+        self.inopts = cafeio.read_inifile(optfile)
+
+        self.init_parcube = init_parcube
+        self.cont_profs = cont_profs
+
 
     def fit_spec(self, 
-                 inparfile,
-                 optfile,
                  output_path=None,
                  init_parcube=False,
                  cont_profs=None,
@@ -662,18 +737,11 @@ class specmod:
         """
         Output result from lmfit
         """
-
-        self.inparfile = inparfile
-        self.optfile = optfile
-        
-        self.inpars = cafeio.read_inifile(inparfile)
-        self.inopts = cafeio.read_inifile(optfile)
-
         # Get the spectrum details from self.
         wave, flux, flux_unc, bandname, mask = mask_spec(self)
         weight = 1./flux_unc**2
         # Assemble it in a Spectrum1D for the profile generator and in a dictionary for the fitting and plotting
-        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
+        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*self.fnu_unit, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
         spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc, 'weight':weight}
         self.spec_dict = spec_dict
         
@@ -687,7 +755,7 @@ class specmod:
         self.phot_dict = phot_dict
             
         # Initiate CAFE param generator
-        param_gen = CAFE_param_generator(spec, inparfile, optfile, cafe_path=self.cafe_dir)
+        param_gen = CAFE_param_generator(spec, self.inpars, self.inopts, cafe_path=self.cafe_dir)
         _, outPath = cafeio.init_paths(self.inopts, cafe_path=self.cafe_dir, file_name=self.result_file_name, output_path=output_path)
 
         print('Generating parameter cube with initial/full parameter object')
@@ -707,7 +775,7 @@ class specmod:
 
         # Initiate CAFE profile loader
         print('Generating continuum profiles')
-        prof_gen = CAFE_prof_generator(spec, inparfile, optfile, phot_dict, cafe_path=self.cafe_dir)
+        prof_gen = CAFE_prof_generator(spec, self.inpars, self.inopts, phot_dict, cafe_path=self.cafe_dir)
 
         if cont_profs is None:
             self.cont_profs = prof_gen.make_cont_profs() # Generate the selected unscaled continuum profiles
@@ -756,7 +824,7 @@ class specmod:
         
         ## Save fCON cube to disk
         cube_gen = CAFE_cube_generator(self)
-        self.contcube = cube_gen.make_profcube(self.inparfile, self.optfile, prof_names={'fCon':['Comp', 'fCON'], 'fDSK':['Comp', 'fDSK'], 'fHOT':['Comp', 'fHOT']})
+        self.contcube = cube_gen.make_profcube(self.inpars, self.inopts, prof_names={'fCon':['Comp', 'fCON'], 'fDSK':['Comp', 'fDSK'], 'fHOT':['Comp', 'fHOT']})
         self.contcube_name = self.result_file_name+'_contcube'
         print('Saving total continuum profile in cube to disk:',self.product_dir+self.contcube_name+'.fits')
         self.contcube.writeto(self.product_dir+self.contcube_name+'.fits', overwrite=True)
@@ -781,30 +849,34 @@ class specmod:
         # Save figure
         cafefig = cafeplot(self.spec_dict, self.phot_dict, CompFluxes, gauss, drude, vgrad=vgrad, pahext=extComps['extPAH'], save_name=self.product_dir+self.result_file_name+'_fitfigure.png', params=self.params)
 
+        # # Save the PAH table
+        # output_fn = os.path.join(self.product_dir, self.result_file_name+'_pahtable.ecsv')
+        # self.pahtable = cafeio.pah_table(self.parcube, self.compdict, pah_obs=True, savetbl=output_fn)
+        
+        # # Save the line table
+        # output_fn = os.path.join(self.product_dir, self.result_file_name+'_linetable.ecsv')
+        # self.linetable = cafeio.line_table(self.parcube, self.compdict, line_obs=True, savetbl=output_fn)
+
         # Save the PAH table
         output_fn = os.path.join(self.product_dir, self.result_file_name+'_pahtable.ecsv')
-        self.pahtable = cafeio.pah_table(self.parcube, self.compdict, pah_obs=True, savetbl=output_fn)
+        self.pahtable = cafeio.pah_table(self.parcube, fnu_unit=self.fnu_unit, compdict=self.compdict, pah_obs=True, savetbl=output_fn)
         
         # Save the line table
         output_fn = os.path.join(self.product_dir, self.result_file_name+'_linetable.ecsv')
-        self.linetable = cafeio.line_table(self.parcube, self.compdict, line_obs=True, savetbl=output_fn)
-    
+        self.linetable = cafeio.line_table(self.parcube, fnu_unit=self.fnu_unit, compdict=self.compdict, line_obs=True, savetbl=output_fn)
 
-    def plot_spec_ini(self,
-                      inparfile, 
-                      optfile, 
-                      init_parcube=False,
-                      cont_profs=None,
-                      force_all_lines=False):
+
+    def plot_spec_ini(self, force_all_lines=False):
         """
         Plot the SED generated by the inital parameters
         """
-
-        self.inpars = cafeio.read_inifile(inparfile)
-        self.inopts = cafeio.read_inifile(optfile)
-
         wave, flux, flux_unc, bandname, mask = mask_spec(self)
-        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
+        spec = Spectrum1D(spectral_axis=wave*u.micron, 
+                          #flux=flux*u.Jy*(u.Jy*self.fnu_unit), 
+                          flux=flux*u.Jy*(u.Jy.to(self.fnu_unit)), 
+                          uncertainty=StdDevUncertainty(flux_unc*(u.Jy.to(self.fnu_unit))), 
+                          redshift=self.z
+                          )
         spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc}
 
         self.fitphot = self.inopts['MODEL OPTIONS']['FITPHOT']
@@ -819,16 +891,16 @@ class specmod:
 
         # Initiate CAFE param generator and make parameter file
         print('Generating continuum profiles for guess model from the .ini file')
-        param_gen = CAFE_param_generator(spec, inparfile, optfile, cafe_path=self.cafe_dir)
+        param_gen = CAFE_param_generator(spec, self.inpars, self.inopts, cafe_path=self.cafe_dir)
         params = param_gen.make_parobj(force_all=force_all_lines)
         
-        if init_parcube is not False:
+        if self.init_parcube is not False:
             print('The initial parameters will be set to the values from the parameter cube provided')
-            cube_params = parcube2parobj(init_parcube, init_parobj=params)
+            cube_params = parcube2parobj(self.init_parcube, init_parobj=params)
             params = param_gen.make_parobj(parobj_update=cube_params, get_all=True)
         
         # Initiate CAFE profile loader and make cont_profs
-        prof_gen = CAFE_prof_generator(spec, inparfile, optfile, phot_dict, cafe_path=self.cafe_dir)
+        prof_gen = CAFE_prof_generator(spec, self.inpars, self.inopts, phot_dict, cafe_path=self.cafe_dir)
         cont_profs = prof_gen.make_cont_profs() # load the selected unscaled continuum profiles
 
         # Scale continuum profiles with parameters and get spectra
@@ -837,23 +909,17 @@ class specmod:
         # Get feature spectrum out of the feature parameters
         gauss, drude, gauss_opc = get_feat_pars(params, apply_vgrad2waves=True)
         
-        cafefig = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, pahext=extComps['extPAH'])
+        cafefig = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, pahext=extComps['extPAH'])
 
 
 
     def plot_spec_fit(self,
-                      inparfile, 
-                      optfile, 
-                      save_name=None):
+                      savefig=None):
         """
         Plot the spectrum itself. If params already exists, plot the fitted results as well.
         """
-
-        self.inpars = cafeio.read_inifile(inparfile)
-        self.inopts = cafeio.read_inifile(optfile)
-
         wave, flux, flux_unc, bandname, mask = mask_spec(self)
-        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
+        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy*(u.Jy*self.fnu_unit), uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
         spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc}
 
         self.fitphot = self.inopts['MODEL OPTIONS']['FITPHOT']
@@ -868,7 +934,7 @@ class specmod:
         else:
             params = parcube2parobj(self.parcube)
 
-        prof_gen = CAFE_prof_generator(spec, inparfile, optfile, phot_dict, cafe_path=self.cafe_dir)
+        prof_gen = CAFE_prof_generator(spec, self.inpars, self.inopts, phot_dict, cafe_path=self.cafe_dir)
         cont_profs = prof_gen.make_cont_profs()
         
         CompFluxes, CompFluxes_0, extComps, e0, tau0, vgrad = get_model_fluxes(params, wave, cont_profs, comps=True)
@@ -876,18 +942,12 @@ class specmod:
         gauss, drude, gauss_opc = get_feat_pars(params, apply_vgrad2waves=True)  # params consisting all the fitted parameters
         
         #sedfig, chiSqrFin = sedplot(wave, flux, flux_unc, CompFluxes, weights=weight, npars=result.nvarys)
-        cafefig = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, vgrad=vgrad, pahext=extComps['extPAH'], params=params)
+        cafefig, ax1, ax2 = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, vgrad=vgrad, pahext=extComps['extPAH'])
         
-        # figs = [sedfig, cafefig]
-        
-        # with PdfPages(outpath+obj+'_fitplots'+tstamp+'.pdf') as pdf:
-        #     for fig in figs:
-        #         plt.figure(fig.number)
-        #         pdf.savefig(bbox_inches='tight')
-        
-        if save_name is not None:
-            cafefig[0].savefig(save_name, dpi=500, format='png', bbox_inches='tight')
+        if savefig is not None:
+            cafefig.savefig(savefig, dpi=500, format='png', bbox_inches='tight')
 
+        return (cafefig, ax1, ax2)
     
     
     def plot_spec(self, savefig=None):
@@ -907,10 +967,10 @@ class specmod:
         ax.set_yscale('log')
 
         if savefig is not None:
-            fig.savefig(savefig)
+            cafefig.savefig(savefig, dpi=500, format='png', bbox_inches='tight')
 
-        return ax
-
+        return (cafefig, ax1, ax2)
+    
 
     # TO BE DEPRECATED AS ALL READ AND WRITE FUNCTIONS SHOULD BE IN CAFE IO
     def save_result(self, asdf=True, pah_tbl=True, line_tbl=True, file_name=None):

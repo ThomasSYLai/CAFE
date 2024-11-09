@@ -3,7 +3,7 @@
 These functions are used by pyCAFE in fitting, but don't care about 1D/2D. Most of these functions
 shouldn't need to be changed to alter how CAFE is doing its fitting
 """
-
+import astropy.units as u
 import numpy as np 
 import matplotlib.pyplot as plt 
 from scipy.interpolate import interp1d, splrep, splev, RegularGridInterpolator
@@ -1085,7 +1085,8 @@ def sedplot(wave, flux, sigma, comps, weights=None, npars=1):
     return fig, chiSqrTot
 
 
-def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, plot_drude=True, pahext=None, save_name=False, params=None):
+def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, fnu_unit=u.Jy,
+             plot_drude=True, pahext=None, save_name=False, params=None):
     ''' Plot the SED and the CAFE fit over the spectrum wavelength range
 
     Arguments:
@@ -1196,6 +1197,15 @@ def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, plot_drude=Tru
     min_flux = np.nanmin(spec['flux'][np.r_[0:5,-5:len(spec['flux'])]])
     max_flux = np.nanmax(spec['flux'][np.r_[0:5,-5:len(spec['flux'])]])
 
+    if fnu_unit == u.Jy:
+        print_fnu_unit = 'Jy'
+    if fnu_unit == u.mJy:
+        print_fnu_unit = 'mJy'
+    if fnu_unit == u.uJy:
+        print_fnu_unit = 'uJy'
+    if fnu_unit == u.nJy:
+        print_fnu_unit = 'nJy'
+
     ax1.legend(loc='lower right')
     ax1.tick_params(direction='in', which='both', length=6, width=1, top=True)
     ax1.tick_params(axis='x', labelsize=0)
@@ -1203,7 +1213,7 @@ def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, plot_drude=Tru
     ax1.set_ylim(bottom=0.1*np.nanmin(min_flux), top=2.*np.nanmax(max_flux))
     #ax1.set_xlim(left=2.5, right=36)
     ax1.set_xlim(np.nanmin(wave)/1.2, 1.2*np.nanmax(wave))
-    ax1.set_ylabel(r'$f_\nu$ (Jy)', fontsize=14)
+    ax1.set_ylabel(r'$f_\nu$ ({})'.format(print_fnu_unit), fontsize=14)
     ax1.set_xscale('log')
     ax1.set_yscale('log')
     #ax1.axvline(9.7, linestyle='--', alpha=0.2)
