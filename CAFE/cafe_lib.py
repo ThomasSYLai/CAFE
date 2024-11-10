@@ -1085,7 +1085,22 @@ def sedplot(wave, flux, sigma, comps, weights=None, npars=1):
     return fig, chiSqrTot
 
 
-def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, fnu_unit=u.Jy,
+def get_temp_from_params(params, comp_name):
+    """Get formatted temperature label for component if params exist
+    
+    Arguments:
+    params -- CAFE parameters object or None
+    comp_name -- Component name prefix (e.g. 'CLD', 'COO', etc)
+    
+    Returns: Formatted temperature string or empty string if params is None
+    """
+    if params is None:
+        return ''
+    return f" ({params[f'{comp_name}_TMP'].value:.0f}$\\,$K)"
+
+
+def cafeplot(spec, phot, fnu_unit, 
+             comps, gauss, drude, vgrad={'VGRAD':0.}, 
              plot_drude=True, pahext=None, save_name=False, params=None):
     ''' Plot the SED and the CAFE fit over the spectrum wavelength range
 
@@ -1104,42 +1119,52 @@ def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, fnu_unit=u.Jy,
 
     Returns: Figure
     '''
-    fCir = comps['fCIR']
-    fCld = comps['fCLD']
-    fCoo = comps['fCOO']
-    fWrm = comps['fWRM']
-    fHot = comps['fHOT']
-    fStb = comps['fSTB']
-    fStr = comps['fSTR']
-    fDsk = comps['fDSK']
+    # Turn the flux density unit back to Jy if scaling was performed while fitting the spectrum
+    fnu_scaling = 1/fnu_unit.to(u.Jy) 
+
+    fCir = comps['fCIR'] * fnu_scaling
+    fCld = comps['fCLD'] * fnu_scaling
+    fCoo = comps['fCOO'] * fnu_scaling
+    fWrm = comps['fWRM'] * fnu_scaling
+    fHot = comps['fHOT'] * fnu_scaling
+    fStb = comps['fSTB'] * fnu_scaling
+    fStr = comps['fSTR'] * fnu_scaling
+    fDsk = comps['fDSK'] * fnu_scaling
     fLin = comps['fLIN']
     fPAH = comps['fPAH']
     fMod = fCir + fCld + fCoo + fWrm + fHot + fStb + fStr + fDsk + fLin + fPAH
     fCont = fCir + fCld + fCoo + fWrm + fHot + fStb + fStr + fDsk
     wavemod = comps['wave']
-    
+
     fig, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={'height_ratios':[3,1]}, figsize=(8,8), sharex=True)
-    ax1.scatter(spec['wave'], spec['flux'], marker='o', s=6, edgecolor='k', facecolor='none', label='Spec Data', alpha=0.9)
-    ax1.errorbar(spec['wave'], spec['flux'], yerr=spec['flux_unc'], fmt='none', color='k', alpha=0.1)
+    ax1.scatter(spec['wave'], spec['flux'] * fnu_scaling, marker='o', s=6, edgecolor='k', facecolor='none', label='Spec Data', alpha=0.9)
+    ax1.errorbar(spec['wave'], spec['flux'] * fnu_scaling, yerr=spec['flux_unc'], fmt='none', color='k', alpha=0.1)
     if phot is not None:
-        ax1.scatter(phot['wave'], phot['flux'], marker='x', s=18, edgecolor='none', facecolor='k', label='Phot Data', alpha=0.9)
-        ax1.errorbar(phot['wave'], phot['flux'], xerr=phot['width']/2, yerr=phot['flux_unc'], fmt='none', color='k', alpha=0.1)
+        ax1.scatter(phot['wave'], phot['flux'] * fnu_scaling, 
+                    marker='x', s=18, edgecolor='none', facecolor='k', 
+                    label='Phot Data', alpha=0.9
+                    )
+        ax1.errorbar(phot['wave'], phot['flux'] * fnu_scaling, 
+                     xerr=phot['width']/2, 
+                     yerr=phot['flux_unc'] * fnu_scaling, 
+                     fmt='none', color='k', alpha=0.1
+                     )
         wave = np.concatenate((spec['wave'], phot['wave']))
-        flux = np.concatenate((spec['flux'], phot['flux']))
+        flux = np.concatenate((spec['flux'] * fnu_scaling, phot['flux'] * fnu_scaling))
         sortinds = np.argsort(wave)
         wave = wave[sortinds] ; flux = flux[sortinds]
     else:
         wave = spec['wave']
-        flux = spec['flux']
+        flux = spec['flux'] * fnu_scaling
                                
     ax1.plot(wavemod, fCont, color='gray', label='Continuum Fit', linestyle='-', zorder=4, alpha=0.8)
     ax1.plot(wavemod, fCont+fLin+fPAH, color='#4c956c', label='Total Fit', linewidth=1.5, zorder=5, alpha=0.85) # green
 
-    CLD_TMP = '' if params == None else r' ('+"{:.0f}".format(params['CLD_TMP'].value)+'$\,$K'+')'
-    COO_TMP = '' if params == None else r' ('+"{:.0f}".format(params['COO_TMP'].value)+'$\,$K'+')'
-    WRM_TMP = '' if params == None else r' ('+"{:.0f}".format(params['WRM_TMP'].value)+'$\,$K'+')'
-    HOT_TMP = '' if params == None else r' ('+"{:.0f}".format(params['HOT_TMP'].value)+'$\,$K'+')'
-        
+    CLD_TMP = get_temp_from_params(params, 'CLD')
+    COO_TMP = get_temp_from_params(params, 'COO')
+    WRM_TMP = get_temp_from_params(params, 'WRM')
+    HOT_TMP = get_temp_from_params(params, 'HOT')
+
     alpha = 0.6
     lw = 0.8
     if np.any(fCir > 0):
@@ -1197,23 +1222,23 @@ def cafeplot(spec, phot, comps, gauss, drude, vgrad={'VGRAD':0.}, fnu_unit=u.Jy,
     min_flux = np.nanmin(spec['flux'][np.r_[0:5,-5:len(spec['flux'])]])
     max_flux = np.nanmax(spec['flux'][np.r_[0:5,-5:len(spec['flux'])]])
 
-    if fnu_unit == u.Jy:
-        print_fnu_unit = 'Jy'
-    if fnu_unit == u.mJy:
-        print_fnu_unit = 'mJy'
-    if fnu_unit == u.uJy:
-        print_fnu_unit = 'uJy'
-    if fnu_unit == u.nJy:
-        print_fnu_unit = 'nJy'
+    # if fnu_unit == u.Jy:
+    #     print_fnu_unit = 'Jy'
+    # if fnu_unit == u.mJy:
+    #     print_fnu_unit = 'mJy'
+    # if fnu_unit == u.uJy:
+    #     print_fnu_unit = 'uJy'
+    # if fnu_unit == u.nJy:
+    #     print_fnu_unit = 'nJy'
 
     ax1.legend(loc='lower right')
     ax1.tick_params(direction='in', which='both', length=6, width=1, top=True)
     ax1.tick_params(axis='x', labelsize=0)
     ax1.tick_params(axis='y', labelsize=12)
-    ax1.set_ylim(bottom=0.1*np.nanmin(min_flux), top=2.*np.nanmax(max_flux))
+    ax1.set_ylim(bottom=0.1*np.nanmin(min_flux)*fnu_scaling, top=2.*np.nanmax(max_flux)*fnu_scaling)
     #ax1.set_xlim(left=2.5, right=36)
     ax1.set_xlim(np.nanmin(wave)/1.2, 1.2*np.nanmax(wave))
-    ax1.set_ylabel(r'$f_\nu$ ({})'.format(print_fnu_unit), fontsize=14)
+    ax1.set_ylabel(r'$f_\nu$ ({})'.format(fnu_unit.name), fontsize=14)
     ax1.set_xscale('log')
     ax1.set_yscale('log')
     #ax1.axvline(9.7, linestyle='--', alpha=0.2)

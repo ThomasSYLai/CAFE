@@ -416,8 +416,6 @@ class cafe_io:
         
                 eqw_list.append(EQW)
 
-        import ipdb
-        ipdb.set_trace()
         if (compdict is None) & (pah_obs is False): # No EQW can be provided
             all_pah_df = pd.DataFrame({'pah_name': pah_name, 
                                        'pah_lam': pah_lam_list, 

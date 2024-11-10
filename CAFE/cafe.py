@@ -495,7 +495,7 @@ class specmod:
 
     def read_spec(self, file_name, xy=None, file_dir='./extractions/', flux_key='Flux_st', flux_unc_key='ERR_st',
                   trim=True, keep_next=False, z=0., is_SED=False, read_columns=None, flux_unc=None,
-                  wave_min=None, wave_max=None, rwave_min=None, rwave_max=None, fnu_scale_to='Jy'):
+                  wave_min=None, wave_max=None, rwave_min=None, rwave_max=None):
         
         """Read and process spectral data from various file formats.
 
@@ -546,16 +546,6 @@ class specmod:
             file_dir = self.cafe_dir + file_dir
 
         print('Spec data:',file_dir+file_name)
-
-        # Set flux density unit
-        if fnu_scale_to == 'Jy':
-            self.fnu_unit = u.Jy
-        if fnu_scale_to == 'mJy':
-            self.fnu_unit = u.mJy
-        if fnu_scale_to == 'uJy':
-            self.fnu_unit = u.uJy
-        if fnu_scale_to == 'nJy':
-            self.fnu_unit = u.nJy
 
         try:
             cube = cafeio.read_cretacube(file_dir+file_name, flux_key, flux_unc_key)
@@ -690,6 +680,19 @@ class specmod:
         self.nx, self.ny, self.nz = cube.nx, cube.ny, cube.nz
         self.cube = cube
 
+        # Determine which flux unit should be used internally to make the flux values close to unity
+        log_f_med = np.log10(np.median(self.fluxes))
+
+        if log_f_med >= -2:
+            self._fnu_unit = u.Jy
+        elif (log_f_med < -2) & (log_f_med >= -5):
+            self._fnu_unit = u.mJy
+        elif (log_f_med < -5) & (log_f_med >= -8):
+            self._fnu_unit = u.uJy
+        elif (log_f_med < -8) & (log_f_med >= -11):
+            self._fnu_unit = u.nJy
+        else:
+            raise IOError("The input flux density values are too small.")
 
 
     def read_phot(self, file_name, file_dir='./extractions/'):
@@ -741,15 +744,26 @@ class specmod:
         wave, flux, flux_unc, bandname, mask = mask_spec(self)
         weight = 1./flux_unc**2
         # Assemble it in a Spectrum1D for the profile generator and in a dictionary for the fitting and plotting
-        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*self.fnu_unit, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
-        spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc, 'weight':weight}
+        spec = Spectrum1D(spectral_axis=wave*u.micron, 
+                          flux=flux*(u.Jy.to(self._fnu_unit))*u.Jy, 
+                          uncertainty=StdDevUncertainty(flux_unc*u.Jy.to(self._fnu_unit)*u.Jy), 
+                          redshift=self.z)
+        spec_dict = {'wave':wave, 
+                     'flux':flux*u.Jy.to(self._fnu_unit), 
+                     'flux_unc':flux_unc*u.Jy.to(self._fnu_unit), 
+                     'weight':weight
+                     }
         self.spec_dict = spec_dict
         
         # See if the user wants to fit photometric data and check whether they have been read
         self.fitphot = self.inopts['MODEL OPTIONS']['FITPHOT']
         if self.fitphot is True:
             if hasattr(self, 'pwaves') is False: raise AttributeError('You are trying to fit photometry but the data have not been loaded. Use cafe.read_phot() to do so.')
-            phot_dict = {'wave':self.pwaves, 'flux':self.pfluxes, 'flux_unc':self.pflux_uncs, 'width':self.pwidths}
+            phot_dict = {'wave':self.pwaves, 
+                         'flux':self.pfluxes*u.Jy.to(self._fnu_unit), 
+                         'flux_unc':self.pflux_uncs*u.Jy.to(self._fnu_unit), 
+                         'width':self.pwidths
+                         }
         else:
             phot_dict = None
         self.phot_dict = phot_dict
@@ -847,7 +861,11 @@ class specmod:
         CompFluxes, CompFluxes_0, extComps, e0, tau0, vgrad = get_model_fluxes(self.params, self.spec_dict['wave'], self.cont_profs, comps=True)
         gauss, drude, gauss_opc = get_feat_pars(self.params, apply_vgrad2waves=True)  # params consisting all the fitted parameters        
         # Save figure
-        cafefig = cafeplot(self.spec_dict, self.phot_dict, CompFluxes, gauss, drude, vgrad=vgrad, pahext=extComps['extPAH'], save_name=self.product_dir+self.result_file_name+'_fitfigure.png', params=self.params)
+        cafefig = cafeplot(self.spec_dict, self.phot_dict, self._fnu_unit,
+                           CompFluxes, gauss, drude, 
+                           vgrad=vgrad, pahext=extComps['extPAH'], 
+                           save_name=self.product_dir+self.result_file_name+'_fitfigure.png', 
+                           params=self.params)
 
         # # Save the PAH table
         # output_fn = os.path.join(self.product_dir, self.result_file_name+'_pahtable.ecsv')
@@ -859,11 +877,11 @@ class specmod:
 
         # Save the PAH table
         output_fn = os.path.join(self.product_dir, self.result_file_name+'_pahtable.ecsv')
-        self.pahtable = cafeio.pah_table(self.parcube, fnu_unit=self.fnu_unit, compdict=self.compdict, pah_obs=True, savetbl=output_fn)
+        self.pahtable = cafeio.pah_table(self.parcube, fnu_unit=self._fnu_unit, compdict=self.compdict, pah_obs=True, savetbl=output_fn)
         
         # Save the line table
         output_fn = os.path.join(self.product_dir, self.result_file_name+'_linetable.ecsv')
-        self.linetable = cafeio.line_table(self.parcube, fnu_unit=self.fnu_unit, compdict=self.compdict, line_obs=True, savetbl=output_fn)
+        self.linetable = cafeio.line_table(self.parcube, fnu_unit=self._fnu_unit, compdict=self.compdict, line_obs=True, savetbl=output_fn)
 
 
     def plot_spec_ini(self, force_all_lines=False):
@@ -873,8 +891,8 @@ class specmod:
         wave, flux, flux_unc, bandname, mask = mask_spec(self)
         spec = Spectrum1D(spectral_axis=wave*u.micron, 
                           #flux=flux*u.Jy*(u.Jy*self.fnu_unit), 
-                          flux=flux*u.Jy*(u.Jy.to(self.fnu_unit)), 
-                          uncertainty=StdDevUncertainty(flux_unc*(u.Jy.to(self.fnu_unit))), 
+                          flux=flux*u.Jy, #*(u.Jy.to(self.fnu_unit)), 
+                          uncertainty=StdDevUncertainty(flux_unc), 
                           redshift=self.z
                           )
         spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc}
@@ -909,8 +927,13 @@ class specmod:
         # Get feature spectrum out of the feature parameters
         gauss, drude, gauss_opc = get_feat_pars(params, apply_vgrad2waves=True)
         
-        cafefig = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, pahext=extComps['extPAH'])
-
+        #cafefig = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, pahext=extComps['extPAH'])
+        
+        # spec_dict and phot_dict have the flux unit of Jy
+        cafefig = cafeplot(spec_dict, phot_dict, self._fnu_unit,
+                           CompFluxes, gauss, drude, 
+                           pahext=extComps['extPAH'], 
+                           )
 
 
     def plot_spec_fit(self,
@@ -919,7 +942,15 @@ class specmod:
         Plot the spectrum itself. If params already exists, plot the fitted results as well.
         """
         wave, flux, flux_unc, bandname, mask = mask_spec(self)
-        spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy*(u.Jy*self.fnu_unit), uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
+        spec = Spectrum1D(spectral_axis=wave*u.micron, 
+                          #flux=flux*u.Jy*(u.Jy*self.fnu_unit), 
+                          flux=flux*u.Jy, #*(u.Jy.to(self.fnu_unit)), 
+                          uncertainty=StdDevUncertainty(flux_unc), 
+                          redshift=self.z
+                          )
+        # spec = Spectrum1D(spectral_axis=wave*u.micron, 
+        #                   flux=flux*(u.Jy.to(self._fnu_unit))*self._fnu_unit, 
+        #                   uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
         spec_dict = {'wave':wave, 'flux':flux, 'flux_unc':flux_unc}
 
         self.fitphot = self.inopts['MODEL OPTIONS']['FITPHOT']
@@ -942,8 +973,15 @@ class specmod:
         gauss, drude, gauss_opc = get_feat_pars(params, apply_vgrad2waves=True)  # params consisting all the fitted parameters
         
         #sedfig, chiSqrFin = sedplot(wave, flux, flux_unc, CompFluxes, weights=weight, npars=result.nvarys)
-        cafefig, ax1, ax2 = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, vgrad=vgrad, pahext=extComps['extPAH'])
-        
+        #cafefig, ax1, ax2 = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, vgrad=vgrad, pahext=extComps['extPAH'])
+
+        # spec_dict and phot_dict have the flux unit of Jy
+        cafefig, ax1, ax2 = cafeplot(spec_dict, phot_dict, self._fnu_unit,
+                           CompFluxes, gauss, drude, 
+                           pahext=extComps['extPAH'], 
+                           )
+
+
         if savefig is not None:
             cafefig.savefig(savefig, dpi=500, format='png', bbox_inches='tight')
 
