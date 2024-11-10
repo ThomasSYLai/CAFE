@@ -145,6 +145,15 @@ class cubemod:
         """
         Function to read in the init parameters used in the fit.
         """
+        # Check that the input param files exist
+        if not os.path.exists(inparfile):
+            raise FileNotFoundError(f"Parameter file not found: {inparfile}")
+        if not os.path.exists(optfile):
+            raise FileNotFoundError(f"Options file not found: {optfile}")
+
+        self.inparfile = inparfile
+        self.optfile = optfile
+
         self.inparfile = inparfile
         self.optfile = optfile
 
@@ -223,7 +232,7 @@ class cubemod:
         print('Highest SNR spaxel is:',np.flip((ind_seq[0][0],ind_seq[1][0])))
         
         # Convert the highest SNR spaxel to a spectrum1D
-        wave, flux, flux_unc, bandname, mask = mask_spec(self,ind_seq[1][0],ind_seq[0][0])
+        wave, flux, flux_unc, bandname, mask = mask_spec(self, ind_seq[1][0], ind_seq[0][0])
         spec = Spectrum1D(spectral_axis=wave*u.micron, flux=flux*u.Jy, uncertainty=StdDevUncertainty(flux_unc), redshift=self.z)
 
         #self.inpar_fns = np.full((self.ny, self.nx), '')
@@ -443,7 +452,6 @@ class cubemod:
 
             if savefig is not None:
                 cafefig.savefig(savefig)
-
 
 
     def plot_spec(self, x, y, savefig=None):
@@ -722,6 +730,12 @@ class specmod:
         """
         Function to read in the init parameters used in the fit.
         """
+        # Check that the input param files exist
+        if not os.path.exists(inparfile):
+            raise FileNotFoundError(f"Parameter file not found: {inparfile}")
+        if not os.path.exists(optfile):
+            raise FileNotFoundError(f"Options file not found: {optfile}")
+        
         self.inparfile = inparfile
         self.optfile = optfile        
 

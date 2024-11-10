@@ -2,6 +2,7 @@ import numpy as np
 from scipy.interpolate import interp1d, splrep, splev, RegularGridInterpolator
 from astropy.table import Table
 import warnings
+import os
 
 import CAFE
 from CAFE.mathfunc import spline, intTab
@@ -161,7 +162,7 @@ def sourceSED_SB(wave, age, tablePath, nebular=False):
     if age not in ['2', '10', '100']:
         raise ValueError('Invalid starburst age')
     fname = 'sb99-'+age+'myr.txt'
-    data =  np.genfromtxt(tablePath+fname, comments=';')
+    data =  np.genfromtxt(os.path.join(tablePath, fname), comments=';')
     waveTab = data[:,1]
     if nebular: fWave = 10**data[:,2]
     else: fWave = 10**data[:,3]

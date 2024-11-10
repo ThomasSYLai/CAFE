@@ -6,6 +6,7 @@ import astropy.units as u
 #################################
 ### Feature functions         ###
 #################################
+"""
 def pah_drude(path='tables/'):
     ''' Make initial PAH profile structure
 
@@ -31,7 +32,6 @@ def pah_drude(path='tables/'):
     # Set feature peaks to the values obtained using PAHFIT (Smith et
     # al. 2006) to fit the mean starburst spectrum of Brandl et al. (2006).
     #         PEAK           WAVE   N  COMPLEX
-    """
     peak = np.asarray([0.00000000, #$ ;;  3.30   0   0
             0.00000000, #$ ;;  3.40   26  0
             0.06159884, #$ ;;  5.27   1   1
@@ -64,11 +64,10 @@ def pah_drude(path='tables/'):
             0.25877291, #$ ;; 17.87  23  16
             0.31397021, #$ ;; 18.92  24  17
             0.85513299]) #  ;; 33.10  25  18
-    """
     #p_3_6_12112 = 0.064
     #peak[idx3] = (gam[idx6]/gam[idx3])*p_3_6_12112 / (wave0[idx6]/wave0[idx3])*peak[idx6]
     return {'wave0':wave0, 'gamma':gam, 'peak':peak, 'complex':comp}
-
+"""
 
 def gauss_prof(wave, gauss, ext=None):
     ''' Compute the flux from a gaussian profile

@@ -17,7 +17,7 @@ import asdf
 from asdf import AsdfFile
 
 import CAFE
-from CAFE.component_model import pah_drude, gauss_prof, drude_prof, drude_int_fluxes
+from CAFE.component_model import gauss_prof, drude_prof, drude_int_fluxes
 
 #import ipdb
 
@@ -33,7 +33,7 @@ class cafe_io:
     def init_paths(inopts, cafe_path=None, file_name=None, output_path=None):
         # Path to load external tables
         if not inopts['PATHS']['TABPATH']:
-            tablePath = cafe_path+'tables/'
+            tablePath = os.path.join(cafe_path, 'tables')
         else: 
             tablePath = inopts['PATHS']['TABPATH']
         
@@ -44,14 +44,14 @@ class cafe_io:
                     os.mkdir(inopts['PATHS']['OUTPATH'])
                 outPath = inopts['PATHS']['OUTPATH']
             else:
-                outPath = cafe_path+'_output/'
+                outPath = os.path.join(cafe_path, 'output')
         else:
             if not os.path.exists(output_path):
                 os.mkdir(output_path)
             if file_name is not None:
-                if not os.path.exists(output_path+file_name):
-                    os.mkdir(output_path+file_name)
-                outPath = output_path+file_name+'/'
+                if not os.path.exists(os.path.join(output_path+file_name)):
+                    os.mkdir(os.path.join(output_path+file_name))
+                outPath = os.path.join(output_path, file_name)
             else:
                 outPath = output_path
 
@@ -153,7 +153,7 @@ class cafe_io:
         
         if instnames[0] != 'PHOTOMETRY':
             # Load all files in the resolving power folder
-            files = os.listdir(tablePath+'resolving_power/')
+            files = os.listdir(os.path.join(tablePath, 'resolving_power/'))
             for i in files: #exclude hidden files from mac
                 if i.startswith('.'):
                     files.remove(i)
@@ -170,10 +170,10 @@ class cafe_io:
             # For each instrument/module
             for inst_fn in inst_files:
                 try:
-                    data = np.genfromtxt(tablePath+'resolving_power/'+inst_fn, comments=';')
+                    data = np.genfromtxt(os.path.join(tablePath, 'resolving_power', inst_fn), comments=';')
                 except:
                     try:
-                        rfitstable = fits.open(tablePath+'resolving_power/'+inst_fn)
+                        rfitstable = fits.open(os.path.join(tablePath, 'resolving_power', inst_fn))
                         data = np.full(5, np.nan)
                         data[1] = rfitstable[1].data[0][0]  # Min wave
                         data[2] = rfitstable[1].data[-1][0] # Max wave

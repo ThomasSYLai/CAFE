@@ -5,6 +5,7 @@ from scipy.interpolate import interp1d, splrep, splev, RegularGridInterpolator
 from scipy.integrate import simps
 from scipy.special import erf
 import time
+import os
 import sys
 import warnings
 import ast
@@ -17,7 +18,7 @@ import CAFE
 from CAFE.mathfunc import spline, intTab
 
 #from pycafelib_cube import *
-from CAFE.component_model import pah_drude, gauss_prof, drude_prof, drude_int_fluxes
+from CAFE.component_model import gauss_prof, drude_prof, drude_int_fluxes
 from CAFE.sourceSED import planck, sourceSED_ISRF, sourceSED_AGN, sourceSED_SB, sourceSED, load_opacity
 
 #import ipdb
@@ -92,10 +93,10 @@ def grain_crosssection(wave, rad, scaleSIL, tablePath):
     '''
 
     # Read in Cross section profile from silicate and graphite
-    cAbsSilTab = np.loadtxt(tablePath+'c_abs.sil.txt', comments=';') # with shape (241, 91)
-    cAbsGraTab = np.loadtxt(tablePath+'c_abs.gra.txt', comments=';')
-    cExtSilTab = np.loadtxt(tablePath+'c_ext.sil.txt', comments=';')
-    cExtGraTab = np.loadtxt(tablePath+'c_ext.gra.txt', comments=';')
+    cAbsSilTab = np.loadtxt(os.path.join(tablePath, 'c_abs.sil.txt'), comments=';') # with shape (241, 91)
+    cAbsGraTab = np.loadtxt(os.path.join(tablePath, 'c_abs.gra.txt'), comments=';')
+    cExtSilTab = np.loadtxt(os.path.join(tablePath, 'c_ext.sil.txt'), comments=';')
+    cExtGraTab = np.loadtxt(os.path.join(tablePath, 'c_ext.gra.txt'), comments=';')
 
     # The grain cross-sections use their own Tabulated wavelength array,
     # and then they are interpolated to the supplied wavelength array
@@ -346,7 +347,7 @@ def grainSizeDF(rad, T_bb, sourceType, tablePath, model='WD01-RV31', dndaTab=Non
 
     ### Load parameter values
     if dndaTab is None:
-        dndaTab = np.genfromtxt(tablePath+'grainsizedf_params.txt', comments=';', dtype='str')
+        dndaTab = np.genfromtxt(os.path.join(tablePath, 'grainsizedf_params.txt'), comments=';', dtype='str')
     names = dndaTab[:,0]
     row = 0
     for i in range(len(names)):
@@ -568,12 +569,12 @@ def grain_opacity(wave, T_bb, scaleSIL, tablePath,
 
     # Obtain crystalline silicate feature mass-opacities
     if fstTab is None:
-        fstTab = np.genfromtxt(tablePath+'k_abs.fst.txt', comments=';')
+        fstTab = np.genfromtxt(os.path.join(tablePath, 'k_abs.fst.txt'), comments=';')
         # fstTab = np.genfromtxt(tablePath+'k_abs_upsampled.fst.txt', comments=';')
         fstWave = fstTab[:,0]
         fstK = fstTab[:,1]
     if ensTab is None:
-        ensTab = np.genfromtxt(tablePath+'k_abs.ens.txt', comments=';')
+        ensTab = np.genfromtxt(os.path.join(tablePath, 'k_abs.ens.txt'), comments=';')
         # ensTab = np.genfromtxt(tablePath+'k_abs_upsampled.ens.txt', comments=';')
         ensWave = ensTab[:,0]
         ensK = ensTab[:,1]
@@ -744,13 +745,13 @@ def grain_emissivity(wave, T_bb, sourceType, scaleSIL, tablePath,
     
     # Obtain crystalline silicate feature mass-opacities
     if fstTab is None:
-        fstTab = np.genfromtxt(tablePath+'k_abs.fst.txt', comments=';')
+        fstTab = np.genfromtxt(os.path.join(tablePath, 'k_abs.fst.txt'), comments=';')
     ### CHECKME
         # fstTab = np.genfromtxt(tablePath+'k_abs_upsampled.fst.txt', comments=';')
         fstWave = fstTab[:,0]
         fstK = fstTab[:,1]
     if ensTab is None:
-        ensTab = np.genfromtxt(tablePath+'k_abs.ens.txt', comments=';')
+        ensTab = np.genfromtxt(os.path.join(tablePath, 'k_abs.ens.txt'), comments=';')
         # ensTab = np.genfromtxt(tablePath+'k_abs_upsampled.ens.txt', comments=';')
         ensWave = ensTab[:,0]
         ensK = ensTab[:,1]

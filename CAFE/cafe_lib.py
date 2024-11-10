@@ -13,7 +13,7 @@ from matplotlib.ticker import ScalarFormatter
 
 import CAFE
 from CAFE.dustgrainfunc import grain_totemissivity
-from CAFE.component_model import pah_drude, gauss_prof, drude_prof, drude_int_fluxes
+from CAFE.component_model import gauss_prof, drude_prof, drude_int_fluxes # pah_drude, 
 
 
 #import ipdb
