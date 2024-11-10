@@ -944,11 +944,13 @@ class specmod:
         #cafefig = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, pahext=extComps['extPAH'])
         
         # spec_dict and phot_dict have the flux unit of Jy
-        cafefig = cafeplot(spec_dict, phot_dict, self._fnu_unit,
+        (fig, ax1, ax2) = cafeplot(spec_dict, phot_dict, self._fnu_unit,
                            CompFluxes, gauss, drude, 
                            pahext=extComps['extPAH'], 
                            )
 
+        return (fig, ax1, ax2)
+    
 
     def plot_spec_fit(self,
                       savefig=None):
@@ -990,7 +992,7 @@ class specmod:
         #cafefig, ax1, ax2 = cafeplot(spec_dict, phot_dict, CompFluxes, gauss, drude, fnu_unit=self.fnu_unit, vgrad=vgrad, pahext=extComps['extPAH'])
 
         # spec_dict and phot_dict have the flux unit of Jy
-        cafefig, ax1, ax2 = cafeplot(spec_dict, phot_dict, self._fnu_unit,
+        fig, ax1, ax2 = cafeplot(spec_dict, phot_dict, self._fnu_unit,
                            CompFluxes, gauss, drude, 
                            pahext=extComps['extPAH'], 
                            )
@@ -999,7 +1001,7 @@ class specmod:
         if savefig is not None:
             cafefig.savefig(savefig, dpi=500, format='png', bbox_inches='tight')
 
-        return (cafefig, ax1, ax2)
+        return (fig, ax1, ax2)
     
     
     def plot_spec(self, savefig=None):
@@ -1021,7 +1023,7 @@ class specmod:
         if savefig is not None:
             cafefig.savefig(savefig, dpi=500, format='png', bbox_inches='tight')
 
-        return (cafefig, ax1, ax2)
+        return (fig, ax)
     
 
     # TO BE DEPRECATED AS ALL READ AND WRITE FUNCTIONS SHOULD BE IN CAFE IO

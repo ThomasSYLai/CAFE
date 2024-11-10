@@ -1281,12 +1281,11 @@ def cafeplot(spec, phot, fnu_unit,
     
     if save_name is False:
         plt.show()
-        return (fig, ax1, ax2)
     else:
         fig.savefig(save_name, dpi=500, format='png', bbox_inches='tight')
         plt.close()
 
-
+    return (fig, ax1, ax2)
 
 def corrmatrixplot(params, outpath='', obj='', tag=''):
     ''' Plots the correlation matrix for the parameters
