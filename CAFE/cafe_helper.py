@@ -35,7 +35,7 @@ class CAFE_param_generator:
         self.tablePath = tablePath
         
 
-    def make_parobj(self, get_all=False, force_all=False, parobj_update=False, init_parobj=False):
+    def make_parobj(self, get_all=False, parobj_update=False, init_parobj=False):
         """
         Build the Parameters object for lmfit based on the input spectrum.
         This function combines the Parameter obj output from "make_cont_pars"
@@ -67,7 +67,7 @@ class CAFE_param_generator:
         if parobj_update is False:
             # Initialize the feature waves, gammas and peaks (and names for lines or complexes for PAHs) from input file
             # Note that these are just individual features, and do not include broad components or the parameters themselves
-            gauss, drude, gauss_opc = self.init_feats(self.wave, self.flux, self.flux_unc, self.z, self.tablePath, instnames, get_all=get_all, force_all=force_all,
+            gauss, drude, gauss_opc = self.init_feats(self.wave, self.flux, self.flux_unc, self.z, self.tablePath, instnames, get_all=get_all,
                                                       atomic_table=inpars['MODULES & TABLES']['ATOMIC_INPUT'],
                                                       molecular_table=inpars['MODULES & TABLES']['MOLECULAR_INPUT'],
                                                       hrecomb_table=inpars['MODULES & TABLES']['HRECOMB_INPUT'],
@@ -111,7 +111,6 @@ class CAFE_param_generator:
                    tablePath,
                    instnames,
                    get_all=False,
-                   force_all=False,
                    atomic_table=None, 
                    molecular_table=None, 
                    hrecomb_table=None,
@@ -255,13 +254,13 @@ class CAFE_param_generator:
                 cont = 0.5 * (fluxMinMax[0] + fluxMinMax[1])
                 peak = np.interp(wave0, wave, featflux) - cont
                 peaks += peak
-                #featflux -= gauss_prof(wave, gauss['wave'], gauss['gam'], gauss['peak'])
                 featflux -= gauss_prof(wave, [wave0, gam, peak])
 
-            if force_all == False:
-                peaks[peaks < 1e-10] = 0.0
-            else:
-                peaks[peaks <= 1e-10] = min(pk for pk in peaks if pk > 1e-10)
+            #if force_all == False:
+            # Line removal     
+            peaks[peaks < 1e-10] = 0.0
+            # else:
+            #     peaks[peaks <= 1e-10] = min(pk for pk in peaks if pk > 1e-10)
         
         gauss = [np.asarray(wave0), np.asarray(gam), np.asarray(peaks*2.0), names, np.asarray(doubs)]
 
@@ -1334,7 +1333,7 @@ def parcube2parobj(parcube, x=0, y=0, init_parobj=None):
 
         if count != len(parobj.keys()):
             #ipdb.set_trace()
-            raise ValueError('Some parameters in the parcube are missing in the ini_parjobj')
+            raise ValueError('Some parameters in the parcube are missing in the ini_parobj')
 
     return parobj
 

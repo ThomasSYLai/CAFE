@@ -445,7 +445,6 @@ class cafe_io:
                                      )
 
         #all_pah_df['pah_eqw'] = eqw_list
-        
         all_pah_df['pah_gamma'] = pah_gamma_list
         all_pah_df['pah_peak'] = pah_peak_list
         all_pah_df = all_pah_df.sort_values('pah_lam')
