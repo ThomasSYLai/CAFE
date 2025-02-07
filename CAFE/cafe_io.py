@@ -49,8 +49,8 @@ class cafe_io:
             if not os.path.exists(output_path):
                 os.mkdir(output_path)
             if file_name is not None:
-                if not os.path.exists(os.path.join(output_path+file_name)):
-                    os.mkdir(os.path.join(output_path+file_name))
+                if not os.path.exists(os.path.join(output_path, file_name)):
+                    os.mkdir(os.path.join(output_path, file_name))
                 outPath = os.path.join(output_path, file_name)
             else:
                 outPath = output_path
