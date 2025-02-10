@@ -23,13 +23,31 @@ from CAFE.component_model import (
 
 # import ipdb
 
+
 #################################
 ### Miscellaneous             ###
 #################################
-
-
 def trim_overlapping(bandnames, keep_next):
+    """Trim overlapping wavelengths between spectral modules.
 
+    This function identifies and removes overlapping wavelength regions between
+    different spectral modules/bands. For overlapping regions, it can either keep
+    the longer or shorter wavelength data based on the keep_next parameter.
+
+    Args:
+        bandnames (list): List of strings identifying which spectral module/band
+            each wavelength point belongs to.
+        keep_next (bool): If True, keeps the longer wavelength data in overlapping
+            regions. If False, keeps the shorter wavelength data.
+
+    Returns:
+        list: Boolean mask indicating which wavelength points to keep (True) or
+            remove (False).
+
+    Notes:
+        The function assumes the bandnames are ordered by wavelength within each
+        module/band.
+    """
     val_inds = []
     band_unique_names = list(dict.fromkeys(bandnames))
     band_last_inds = []
@@ -71,45 +89,6 @@ def trim_overlapping(bandnames, keep_next):
     # self.bandnames = bandnames[val_inds]
 
     return val_inds
-
-
-def mask_spec(data, x=0, y=0):
-    """
-    This function masks extreme outliers in the data
-    """
-
-    if data.masks.ndim != 1:
-        mask = data.masks[:, y, x] != 0
-        mask[np.isnan(data.fluxes[:, y, x])] = True
-        mask[
-            (
-                data.fluxes[:, y, x]
-                > np.nanmedian(data.fluxes[:, y, x])
-                + mad_std(data.fluxes[:, y, x], ignore_nan=True) * 1e3
-            )  # (data.fluxes[:,y,x] < np.nanmedian(data.fluxes[:,y,x])-mad_std(data.fluxes[:,y,x], ignore_nan=True)*1e3) |\
-            | (data.fluxes[:, y, x] < 0)
-        ] = True  # | (data.fluxes[:,y,x] < 0)
-        flux = data.fluxes[~mask, y, x]
-        flux_unc = data.flux_uncs[~mask, y, x]
-    else:
-        mask = data.masks != 0
-        mask[np.isnan(data.fluxes)] = True
-        mask[
-            (
-                data.fluxes
-                > np.nanmedian(data.fluxes)
-                + mad_std(data.fluxes, ignore_nan=True) * 1e3
-            )  # (data.fluxes < np.nanmedian(data.fluxes)-mad_std(data.fluxes, ignore_nan=True)*1e3) |\
-            | (data.fluxes < 0)
-        ] = True  # | (data.fluxes < 0)
-        flux = data.fluxes[~mask]
-        flux_unc = data.flux_uncs[~mask]
-
-    wave = data.waves[~mask]
-    bandname = data.bandnames[~mask]
-    mask_inds = mask[~mask]
-
-    return wave, flux, flux_unc, bandname, mask_inds
 
 
 # RIGHT NOT THIS FUNCTION IS NOT USED SINCE THE FITTING IS DONE ALL AT ONCE
@@ -379,9 +358,9 @@ def intTab(f, h):
         return integrand
 
 
-##############################
-### Goodness of Fit        ###
-##############################
+# --------------------------------------------------------------------------
+# Model build up for minimization
+# --------------------------------------------------------------------------
 def chisquare(params, spec, phot, cont_profs, show=True):
     """Objective function for fitting
 
@@ -400,7 +379,18 @@ def chisquare(params, spec, phot, cont_profs, show=True):
     Returns: weighted mean-square difference between observed flux and the
     CAFE model from params and cont_profs.
     """
-    model = get_model_fluxes(params, spec["wave"], cont_profs, phot_dict=phot)
+    model, CompFluxes, CompFluxes_0, extComps, e0, tau0, vgrad = (
+        get_model_fluxes(
+            params,
+            spec["wave"],
+            cont_profs,
+            verbose_output=True,
+            phot_dict=phot,
+        )
+    )
+
+    # *** Need to use the params to get the total continuum profile, and perform
+    # a smoothness penalty on it
 
     # Note that this is the root of the thing who's sum you want to minimize
     # lmfit is kind of weird like that
@@ -419,12 +409,14 @@ def chisquare(params, spec, phot, cont_profs, show=True):
 
     if phot is None:
         weights = 1.0 / spec["flux_unc"] ** 2
+
         return (spec["flux"] - model) * np.sqrt(weights)
     else:
         weights = np.concatenate(
             (1.0 / spec["flux_unc"] ** 2, 1.0 / phot["flux_unc"] ** 2)
         )
         flux = np.concatenate((spec["flux"], phot["flux"]))
+
         return (flux - model) * np.sqrt(weights)
 
 
@@ -556,10 +548,12 @@ def get_feat_pars(params, errors=False, apply_vgrad2waves=False):
     return gauss, drude, gauss_opc
 
 
-############################
-#### Model Computations ####
-############################
-def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
+# --------------------------------------------------------------------------
+# Model Computations
+# --------------------------------------------------------------------------
+def get_model_fluxes(
+    params, wave, cont_profs, verbose_output=False, phot_dict=None
+):
     """Return the model flux
 
     Computes the model CAFE flux corresponding to pars and cont_profs at
@@ -567,22 +561,29 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
     see below for an alternative with more plot-friendly options.
 
     Arguments:
-    params -- lm Parameters object with CAFE continuum parameters
-    wave -- wavelength points to compute flux
-    phot_dict -- dictionary with the photometric data and filter info
-    Cont_Profs -- a dictionary containing:
-        waveSED
-        wave0
-        flux0
-        kAbs, kExt
-        E_CIR, E_COO, E_CLD, E_WRM, etc
-        kIce, kHac, and kCOrv
-        various sources
-        filters and pwaves
-        dofilter
-        z
+        params (lmfit.Parameters): lm Parameters object with CAFE continuum parameters.
+        wave (array-like): Wavelength points to compute flux.
+        phot_dict (dict): Dictionary with the photometric data and filter info.
+        cont_profs (dict): A dictionary containing:
+            - waveMod: Model wavelengths.
+            - wave0: Reference wavelengths.
+            - flux0: Reference fluxes.
+            - kAbs, kExt: Absorption and extinction coefficients.
+            - E_CIR, E_COO, E_CLD, E_WRM, etc: Emission components.
+            - kIce, kHac, and kCOrv: Additional opacity sources.
+            - various sources: Other relevant sources.
+            - filters and pwaves: Filter information and photometric wavelengths.
+            - dofilter: Boolean indicating whether to apply filters.
+            - z: Redshift.
 
-    Returns: array of fluxes at given wavelengths
+    Keyword Arguments:
+        verbose_output (bool): Whether to return the model fluxes and individual component
+            fluxes (default False). If False, only the total flux and the component flux
+            are returned. The component flux will be used for penalizing the curvature
+            variations of the total flux.
+
+    Returns:
+        array: Array of fluxes at given wavelengths.
     """
     # Get model parameters
     p = params.valuesdict()
@@ -670,13 +671,13 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jCIR0 = 1.0
         fCIR = p["CIR_FLX"] * cont_profs["flux0"]["CIR"] / jCIR0 * jCIR
         fCIR[fCIR < 0] = 0.0
-        if comps:
+        if verbose_output:
             fCIR_0 = np.copy(fCIR)
             # fCIR_Tot = np.trapz(fCIR/waveMod, logWaveMod)
             # fDST_Tot = np.copy(fCIR_Tot)
     else:
         fCIR = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             jCIR = np.zeros(waveMod.size)
             jCIR0 = 0.0
             fCIR_0 = np.zeros(waveMod.size)
@@ -698,13 +699,13 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jCLD0 = 1.0
         fCLD = p["CLD_FLX"] * cont_profs["flux0"]["CLD"] / jCLD0 * jCLD
         fCLD[jCLD < 0] = 0.0
-        if comps:
+        if verbose_output:
             fCLD_0 = np.copy(fCLD)
             # fCLD_Tot = np.trapz(fCLD/waveMod, logWaveMod)
             # fDST_Tot+=fCLD_Tot
     else:
         fCLD = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             jCLD = np.zeros(waveMod.size)
             jCLD0 = 0.0
             fCLD_0 = np.zeros(waveMod.size)
@@ -737,14 +738,14 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jCOO0 = 1.0
         fCOO = p["COO_FLX"] * cont_profs["flux0"]["COO"] / jCOO0 * jCOO
         fCOO[fCOO < 0] = 0.0
-        if comps:
+        if verbose_output:
             fCOO_0 = p["COO_FLX"] * cont_profs["flux0"]["COO"] / jCOO0 * jCOO_0
             fCOO_0[fCOO_0 < 0] = 0.0
             # fCOO_Tot = np.trapz(fCOO/waveMod, logWaveMod)
             # fDST_Tot+=fCOO_Tot
     else:
         fCOO = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extCOO = np.ones(waveMod.size)
             jCOO = np.zeros(waveMod.size)
             jCOO0 = 0.0
@@ -778,14 +779,14 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jWRM0 = 1.0
         fWRM = p["WRM_FLX"] * cont_profs["flux0"]["WRM"] / jWRM0 * jWRM
         fWRM[fWRM < 0] = 0.0
-        if comps:
+        if verbose_output:
             fWRM_0 = p["WRM_FLX"] * cont_profs["flux0"]["WRM"] / jWRM0 * jWRM_0
             fWRM_0[fWRM_0 < 0] = 0.0
             # fWRM_Tot = np.trapz(fWRM/waveMod, logWaveMod)
             # fDST_Tot+=fWRM_Tot
     else:
         fWRM = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extWRM = np.ones(waveMod.size)
             jWRM = np.zeros(waveMod.size)
             jWRM0 = 0.0
@@ -819,14 +820,14 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jHOT0 = 1.0
         fHOT = p["HOT_FLX"] * cont_profs["flux0"]["HOT"] / jHOT0 * jHOT
         fHOT[fHOT < 0] = 0.0
-        if comps:
+        if verbose_output:
             fHOT_0 = p["HOT_FLX"] * cont_profs["flux0"]["HOT"] / jHOT0 * jHOT_0
             fHOT_0[fHOT_0 < 0] = 0.0
             # fHOT_Tot = np.trapz(fHOT/waveMod, logWaveMod)
             # fDST_Tot+=fHOT_Tot
     else:
         fHOT = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extHOT = np.ones(waveMod.size)
             jHOT = np.zeros(waveMod.size)
             jHOT0 = 0.0
@@ -863,13 +864,13 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
         ### Skip scaling factors
         fPAH = jPAH
         fPAH[fPAH < 0] = 0.0
-        if comps:
+        if verbose_output:
             fPAH_0 = jPAH_0
             fPAH_0[fPAH_0 < 0] = 0.0
             # fPAH_Tot = np.trapz(fPAH/waveMod, logWaveMod)
     else:
         fPAH = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extPAH = np.ones(waveMod.size)
             jPAH = np.zeros(waveMod.size)
             # jPAH0 = 0.
@@ -897,13 +898,13 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jSTR0 = 1.0
         fSTR = p["STR_FLX"] * cont_profs["flux0"]["STR"] / jSTR0 * jSTR
         fSTR[fSTR < 0] = 0.0
-        if comps:
+        if verbose_output:
             fSTR_0 = p["STR_FLX"] * cont_profs["flux0"]["STR"] / jSTR0 * jSTR_0
             fSTR_0[fSTR_0 < 0] = 0.0
             # fSTR_Tot = np.trapz(fSTR/waveMod, logWaveMod)
     else:
         fSTR = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extSTR = np.ones(waveMod.size)
             jSTR = np.zeros(waveMod.size)
             jSTR0 = 0.0
@@ -941,7 +942,7 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
         const = p["STB_FLX"] * cont_profs["flux0"]["STB"] / jSTB0
         fSTB = const * jSTB
         fSTB[fSTB < 0] = 0.0
-        if comps:
+        if verbose_output:
             fSTB_100 = const * jSTB_0_100 * extSTB
             fSTB_100[fSTB_100 < 0] = 0.0
             fSTB_010 = const * jSTB_0_010 * extSTB
@@ -960,7 +961,7 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             # fSTB_Tot = np.trapz(fSTB/waveMod, logWaveMod)
     else:
         fSTB = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extSTB = np.ones(waveMod.size)
             fSTB_100 = np.zeros(waveMod.size)
             fSTB_010 = np.zeros(waveMod.size)
@@ -991,13 +992,13 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
             jDSK0 = 1.0
         fDSK = p["DSK_FLX"] * cont_profs["flux0"]["DSK"] / jDSK0 * jDSK
         fDSK[fDSK < 0] = 0.0
-        if comps:
+        if verbose_output:
             fDSK_0 = p["DSK_FLX"] * cont_profs["flux0"]["DSK"] / jDSK0 * jDSK_0
             fDSK_0[fDSK_0 < 0] = 0.0
             # fDSK_Tot = np.trapz(fDSK/waveMod, logWaveMod)
     else:
         fDSK = np.zeros(waveMod.size)
-        if comps:
+        if verbose_output:
             extDSK = np.ones(waveMod.size)
             jDSK = np.zeros(waveMod.size)
             jDSK0 = 0.0
@@ -1069,7 +1070,7 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
 
     # Some of the long wavelength photometry is a little funny
 
-    if comps is True:
+    if verbose_output is True:
 
         # Model components with extinction applied
         fCON = fCIR + fCLD + fCOO + fWRM + fHOT + fSTR + fSTB + fDSK
@@ -1179,10 +1180,8 @@ def get_model_fluxes(params, wave, cont_profs, comps=False, phot_dict=None):
         # VGRAD
         vgrad = {"VGRAD": p["VGRAD"]}
 
-        return CompFluxes, CompFluxes_0, extComps, emiss, tau0, vgrad
-
+        return (flux, CompFluxes, CompFluxes_0, extComps, emiss, tau0, vgrad)
     else:
-
         return flux
 
 

@@ -57,7 +57,7 @@ def get_fit_sequence(
         image_copy = ma.masked_array(image_copy)
         image_copy.mask = False
         image_copy.fill_value = np.nan
-        image_copy[image <= 0.0] = ma.masked
+        image_copy[(image <= 0.0) | np.isnan(image)] = ma.masked
 
     snr_image = image_copy.copy()
 
@@ -87,7 +87,6 @@ def get_fit_sequence(
         raise ValueError(f"Sorting sequence {sorting_seq} not supported")
 
     if sorting_seq == "snr":
-
         x, y = np.meshgrid(
             np.arange(snr_image.shape[1]), np.arange(snr_image.shape[0])
         )
@@ -96,15 +95,16 @@ def get_fit_sequence(
         processed_pixels = 0
         # For each spaxel
         for snr_ind in zip(snr_ind_seq[0], snr_ind_seq[1]):  # (y,x)
-            processed_pixels += 1
-            percentage = (processed_pixels / total_pixels) * 100
-            print(
-                f"\rProcessing pixel {processed_pixels}/{total_pixels} ({percentage:.1f}%)",
-                end="",
-                flush=True,
-            )
-
             if snr_image.mask[snr_ind] == False:
+                # Print the progress
+                processed_pixels += 1
+                percentage = (processed_pixels / total_pixels) * 100
+                print(
+                    f"\rProcessing get cube sequence {processed_pixels}/{total_pixels} ({percentage:.1f}%)",
+                    end="",
+                    flush=True,
+                )
+
                 if snr_ind == (
                     snr_ind_seq[0][0],
                     snr_ind_seq[1][0],
