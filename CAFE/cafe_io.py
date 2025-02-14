@@ -84,6 +84,28 @@ class cafe_io:
 
         # return self
 
+    def _create_dummy_cube(self, spec):
+        """Create a dummy cube structure from a Spectrum1D object."""
+        hdu = fits.PrimaryHDU()
+        dummy = fits.ImageHDU(np.full(1, np.nan), name="Flux")
+        dummy.header["EXTNAME"] = "FLUX"
+
+        cube = type(
+            "DummyCube", (), {}
+        )()  # Create simple object to hold attributes
+        self.bandnames = spec.meta.get("band_name", [None])[0]
+        self.waves = spec.spectral_axis.value
+        self.fluxes = spec.flux.value
+        self.flux_uncs = spec.uncertainty.quantity.value
+        self.masks = spec.mask
+        self.nx = 1
+        self.ny = 1
+        self.nz = spec.flux.shape
+        self.header = dummy.header
+        self.bandnames = np.full(len(self.waves), "UNKNOWN")
+
+        # return cube
+
     ##### Function that reads a TABLE .fits file from CRETA           ###
     ###############################################################################
     # @filename: The fits filename . (string)

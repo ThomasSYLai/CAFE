@@ -55,6 +55,8 @@ class CAFE_param_generator:
         # Make continuum parameter object from input file
         try:
             params = self.make_cont_pars(
+                self.wave,
+                self.z,
                 inpars["CONTINUA INITIAL VALUES AND OPTIONS"],
                 parobj_update=updated_parobj,
                 init_parobj=init_parobj,
@@ -779,7 +781,7 @@ class CAFE_param_generator:
 
     @staticmethod
     def make_cont_pars(
-        inpars, parobj_update=False, init_parobj=False, Onion=False
+        wave, z, inpars, parobj_update=False, init_parobj=False, Onion=False
     ):
         """Makes the parameters structure for the continuum fit from the input dictionary
 
@@ -847,43 +849,47 @@ class CAFE_param_generator:
                     and init_parobj is not False
                 ):
                     params[key].value = 1e-3
-
+        """
         # Ensure HOT_TMP > WRM_TMP > COO_TMP > CLD_TMP > CIR_TMP
         # ------------------------------------------------------
         params.add(
-            "HOT_WRM_TMP",
-            value=inpars["HOT_TMP"][0] / inpars["WRM_TMP"][0],
+            "WRM_HOT_TMP",
+            value=inpars["WRM_TMP"][0] / inpars["HOT_TMP"][0],
             vary=True,
-            min=1.0,
-            max=np.inf,
+            min=0,
+            max=1,
+            # expr="WRM_TMP/HOT_TMP",
         )
         params.add(
-            "WRM_COO_TMP",
-            value=inpars["WRM_TMP"][0] / inpars["COO_TMP"][0],
+            "COO_WRM_TMP",
+            value=inpars["COO_TMP"][0] / inpars["WRM_TMP"][0],
             vary=True,
-            min=1.0,
-            max=np.inf,
+            min=0,
+            max=1,
+            # expr="COO_TMP/WRM_TMP",
         )
         params.add(
-            "COO_CLD_TMP",
-            value=inpars["COO_TMP"][0] / inpars["CLD_TMP"][0],
+            "CLD_COO_TMP",
+            value=inpars["CLD_TMP"][0] / inpars["COO_TMP"][0],
             vary=True,
-            min=1.0,
-            max=np.inf,
+            min=0,
+            max=1,
+            # expr="CLD_TMP/COO_TMP",
         )
         params.add(
-            "CLD_CIR_TMP",
-            value=inpars["CLD_TMP"][0] / inpars["CIR_TMP"][0],
+            "CIR_CLD_TMP",
+            value=inpars["CIR_TMP"][0] / inpars["CLD_TMP"][0],
             vary=True,
-            min=1.0,
-            max=np.inf,
+            min=0,
+            max=1,
+            # expr="CIR_TMP/CLD_TMP",
         )
         if parobj_update:
-            params["HOT_WRM_TMP"].value = parobj_update["HOT_WRM_TMP"].value
-            params["WRM_COO_TMP"].value = parobj_update["WRM_COO_TMP"].value
-            params["COO_CLD_TMP"].value = parobj_update["COO_CLD_TMP"].value
-            params["CLD_CIR_TMP"].value = parobj_update["CLD_CIR_TMP"].value
-
+            params["WRM_HOT_TMP"].value = parobj_update["WRM_HOT_TMP"].value
+            params["COO_WRM_TMP"].value = parobj_update["COO_WRM_TMP"].value
+            params["CLD_COO_TMP"].value = parobj_update["CLD_COO_TMP"].value
+            params["CIR_CLD_TMP"].value = parobj_update["CIR_CLD_TMP"].value
+        """
         # Ensure TAU_HOT > TAU_WRM > TAU_COO
         # -----------------------------------
         if Onion:
@@ -911,6 +917,13 @@ class CAFE_param_generator:
             if parobj_update:
                 params["WRM_COO"].value = parobj_update["WRM_COO"].value
 
+        """
+        # Set parameters related to COO and CIR vary=False if max(input_wave) < 5 um
+        if np.max(wave / (1 + z)) < 5:
+            for key in params.keys():
+                if "COO" in key or "CIR" in key:
+                    params[key].vary = False
+        """
         return params
 
     @staticmethod

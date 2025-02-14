@@ -305,7 +305,7 @@ class specmod(cafe_io):
             tab = _read_table_data(file_path, read_columns, flux_unc, is_SED)
             spec = _create_spectrum_from_table(tab)
             _check_spectrum_units(spec)
-            self.cube = _create_dummy_cube(
+            self.cube = self._create_dummy_cube(
                 spec
             )  # Insert a spectrum into a "3d" cube
         else:
@@ -315,12 +315,17 @@ class specmod(cafe_io):
         self, trim, keep_next, wave_min, wave_max, rwave_min, rwave_max, z, xy
     ):
         # Remove the overlapping wavelengths between the spectral modules
-        val_inds = (
-            trim_overlapping(self.bandnames, keep_next)
-            if trim == True
-            else np.full(len(self.waves), True)
-        )
+        # This is implmented only when bandnames are provided
+        if hasattr(self, "bandnames"):
+            val_inds = (
+                trim_overlapping(self.bandnames, keep_next)
+                if trim is True
+                else np.full(len(self.waves), True)
+            )
+        else:
+            val_inds = np.full(len(self.waves), True)
 
+        # Trim the wavelengths based on the input limits
         if (wave_min is not None and rwave_min is not None) or (
             wave_max is not None and rwave_max is not None
         ):
@@ -525,6 +530,7 @@ class specmod(cafe_io):
         self.file_name = file_name  # cube.cube.filename().split('/')[-1]
         self.result_file_name = os.path.splitext(self.file_name)[0]
 
+        # Overlap removal and trimming
         self._overlap_removal_and_trim(
             trim, keep_next, wave_min, wave_max, rwave_min, rwave_max, z, xy
         )
@@ -582,15 +588,9 @@ class specmod(cafe_io):
         self.init_parcube = init_parcube
         self.cont_profs = cont_profs
 
-    def fit_spec(
-        self,
-        output_path=None,
-        # init_parcube=False, # This has been moved to the input_param function
-        cont_profs=None,
-    ):
-        """
-        Output result from lmfit
-        """
+        # ++++++++++++++++++++++++++++++++++
+        # Output result from lmfit
+        # ++++++++++++++++++++++++++++++++++
         # Get the spectrum after masking extreme outliers.
         # Data points that are more than 1000*MAD away from the median
         wave, flux, flux_unc, bandname, mask = self._mask_spec()
@@ -639,19 +639,13 @@ class specmod(cafe_io):
         param_gen = CAFE_param_generator(
             spec, self.inpars, self.inopts, cafe_path=self.cafe_dir
         )
-        _, outPath = cafeio.init_paths(
-            self.inopts,
-            cafe_path=self.cafe_dir,
-            file_name=self.result_file_name,
-            output_path=output_path,
-        )
 
         print("Generating parameter cube with initial/full parameter object")
         all_params = param_gen.make_parobj(get_all=True)
         cube_gen = CAFE_cube_generator(self)
 
         # This is the parcube before the fit
-        parcube = cube_gen.make_parcube(all_params)
+        self.parcube = cube_gen.make_parcube(all_params)
 
         print("Generating parameter object")
         init_params = param_gen.make_parobj()
@@ -697,8 +691,132 @@ class specmod(cafe_io):
             "defined in the parameter object",
         )
 
+        self.params = params
+
+    def fit_spec(
+        self,
+        output_path=None,
+        # init_parcube=False, # This has been moved to the input_param function
+        cont_profs=None,
+    ):
+        # """
+        # Output result from lmfit
+        # """
+        # # Get the spectrum after masking extreme outliers.
+        # # Data points that are more than 1000*MAD away from the median
+        # wave, flux, flux_unc, bandname, mask = self._mask_spec()
+
+        # # Assemble it in a Spectrum1D for the profile generator and in a dictionary for the fitting and plotting
+        # spec = Spectrum1D(
+        #     spectral_axis=wave * u.micron,
+        #     flux=flux * (u.Jy.to(self._fnu_unit)) * u.Jy,
+        #     uncertainty=StdDevUncertainty(
+        #         flux_unc * u.Jy.to(self._fnu_unit) * u.Jy
+        #     ),
+        #     redshift=self.z,
+        # )
+
+        # # Create spec_dict and phot_dict which will be used in the actual fitting
+        # # ---------------------------------------------------------------------
+        # spec_dict = {
+        #     "wave": wave,
+        #     "flux": flux * u.Jy.to(self._fnu_unit),
+        #     "flux_unc": flux_unc * u.Jy.to(self._fnu_unit),
+        # }
+
+        # self.spec_dict = spec_dict
+
+        # # See if the user wants to fit photometric data and check whether they have been read
+        # self.fitphot = self.inopts["MODEL OPTIONS"]["FITPHOT"]
+        # if self.fitphot is True:
+        #     if hasattr(self, "pwaves") is False:
+        #         raise AttributeError(
+        #             "You are trying to fit photometry but the data have not "
+        #             "been loaded. Use cafe.read_phot() to do so."
+        #         )
+        #     phot_dict = {
+        #         "wave": self.pwaves,
+        #         "flux": self.pfluxes * u.Jy.to(self._fnu_unit),
+        #         "flux_unc": self.pflux_uncs * u.Jy.to(self._fnu_unit),
+        #         "width": self.pwidths,
+        #     }
+        # else:
+        #     phot_dict = None
+
+        # self.phot_dict = phot_dict
+        # # ---------------------------------------------------------------------
+
+        # # Initiate CAFE param generator
+        # param_gen = CAFE_param_generator(
+        #     spec, self.inpars, self.inopts, cafe_path=self.cafe_dir
+        # )
+        # _, outPath = cafeio.init_paths(
+        #     self.inopts,
+        #     cafe_path=self.cafe_dir,
+        #     file_name=self.result_file_name,
+        #     output_path=output_path,
+        # )
+
+        # print("Generating parameter cube with initial/full parameter object")
+        # all_params = param_gen.make_parobj(get_all=True)
+        # cube_gen = CAFE_cube_generator(self)
+
+        # # This is the parcube before the fit
+        # parcube = cube_gen.make_parcube(all_params)
+
+        # print("Generating parameter object")
+        # init_params = param_gen.make_parobj()
+
+        # if self.init_parcube is not None:  # If initial parameters are provided
+        #     print(
+        #         "The parameters in the parcube provided for initialization will be used to initialize the parameter object"
+        #     )
+
+        #     # cube_params is the input parameter object, which is different from the auto generated init_params
+        #     cube_params = parcube2parobj(
+        #         self.init_parcube, init_parobj=init_params
+        #     )
+        #     params = param_gen.make_parobj(
+        #         updated_parobj=cube_params,
+        #         get_all=True,
+        #         init_parobj=init_params,
+        #     )
+        # else:  # If initial parameters are not provided
+        #     params = init_params
+
+        # # Initiate CAFE profile loader
+        # print("Generating continuum profiles")
+        # prof_gen = CAFE_prof_generator(
+        #     spec, self.inpars, self.inopts, phot_dict, cafe_path=self.cafe_dir
+        # )
+
+        # if self.cont_profs is None:
+        #     self.cont_profs = (
+        #         prof_gen.make_cont_profs()
+        #     )  # Generate the selected unscaled continuum profiles
+        # # else:
+        # #     self.cont_profs = cont_profs
+
+        # unfixed_params = [
+        #     True if params[par].vary == True else False for par in params.keys()
+        # ]
+        # print(
+        #     "Fitting",
+        #     unfixed_params.count(True),
+        #     "unfixed parameters, out of the",
+        #     len(params),
+        #     "defined in the parameter object",
+        # )
+
+        # Set IO paths
+        _, outPath = cafeio.init_paths(
+            self.inopts,
+            cafe_path=self.cafe_dir,
+            file_name=self.result_file_name,
+            # output_path=output_path,
+        )
         # Fit the spectrum
-        result = cafe_grinder(self, params, spec_dict, phot_dict)
+        result = cafe_grinder(self, self.params, self.spec_dict, self.phot_dict)
         print(
             "The VGRAD of the spectrum is:",
             result.params["VGRAD"].value,
@@ -707,8 +825,8 @@ class specmod(cafe_io):
 
         self.params = result.params
 
-        # Inject the result into the parameter cube
-        parcube = parobj2parcube(result.params, parcube)
+        # Inject the result into the pre-existing parameter cube and update parcube with the new result
+        parcube = parobj2parcube(result.params, self.parcube)
         self.parcube = parcube
 
         # Get compdict
@@ -765,7 +883,7 @@ class specmod(cafe_io):
             self.product_dir, self.contcube_name + ".fits"
         )
         print(
-            "Saving total continuum profile in cube to disk: {output_path_total_conti}"
+            f"Saving total continuum profile in cube to disk: {output_path_total_conti}"
         )
         self.contcube.writeto(output_path_total_conti, overwrite=True)
 
@@ -2116,25 +2234,3 @@ def _create_spectrum_from_table(tab):
     spec.mask = np.full(len(spec.flux), 0)
     spec.meta = {"bandname": [None]}
     return spec
-
-
-def _create_dummy_cube(spec):
-    """Create a dummy cube structure from a Spectrum1D object."""
-    hdu = fits.PrimaryHDU()
-    dummy = fits.ImageHDU(np.full(1, np.nan), name="Flux")
-    dummy.header["EXTNAME"] = "FLUX"
-
-    cube = type(
-        "DummyCube", (), {}
-    )()  # Create simple object to hold attributes
-    cube.bandnames = spec.meta.get("band_name", [None])[0]
-    cube.waves = spec.spectral_axis.value
-    cube.fluxes = spec.flux.value
-    cube.flux_uncs = spec.uncertainty.quantity.value
-    cube.masks = spec.mask
-    cube.nx = cube.ny = 1
-    cube.nz = spec.flux.shape
-    cube.header = dummy.header
-    cube.bandnames = np.full(len(cube.waves), "UNKNOWN")
-
-    return cube
