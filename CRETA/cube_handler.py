@@ -9,7 +9,6 @@ from matplotlib import cm, colors, pyplot as plt
 from matplotlib.colors import LogNorm
 from photutils.aperture import CircularAperture
 from astropy.wcs import WCS
-from cube_preproc import cube_preproc
 from photutils.aperture import RectangularAperture
 import os
 import time
@@ -18,20 +17,25 @@ from astropy import units as u
 from photutils.aperture import SkyCircularAperture
 from photutils.aperture import aperture_photometry
 current_path = os.path.abspath(os.getcwd())
+
 import sys, glob, os
-sys.path.append('/Users/tanio/Sync/pywork/pys')
+
 import numpy as np
 from numpy import unravel_index
 from astropy.io import fits
 from astropy.convolution import convolve, Gaussian2DKernel, convolve_fft
-import mylmfit2dfun
 from lmfit import Parameters
 
+import CAFE.CRETA
+from CAFE.CRETA.cube_preproc import cube_preproc
+from CAFE.CRETA.mylmfit2dfun import mylmfit2dfun
+
+# import ipdb
 
 # Ingests and operates on a sub-cube
 class cube_handler:
     #%%
-    def __init__(self, path, file_name, base_r, base_l, point_source, isPSF, centering, back, r_in,width, aperture_type, convolve):
+    def __init__(self, path, file_name, base_r, base_l, point_source, isPSF, centering, back, r_in,width, aperture_type, convolve, ignore_DQ):
         
         self.preprocess = cube_preproc()
         self.head_keys = self.preprocess.getFITSData(path+file_name) if isPSF == False else self.preprocess.getPSFData(path+file_name)
@@ -42,11 +46,18 @@ class cube_handler:
         
         #self.pixel_scale = pixel_scale                  #Sub-cube's pixel scale
         #self.base_pixel_scale = base_pixel_scale        #Pixel scale of sub-cube with the shortest wavelength
-        self.cube_before= self.head_keys['cube_data'].copy() 
+        self.cube_before = self.head_keys['cube_data'].copy() 
         # self.zero_mask = self.cube_before == 0         #Create the zero-mask 
-        self.zero_mask = self.DQ != 0 
 
-        self.cube_before[self.zero_mask] = np.NaN      #Replace zero with NaN
+        if ignore_DQ == True:
+            self.zero_mask = np.array(np.full_like(self.DQ, False), dtype=bool)
+        else:
+            self.zero_mask = self.DQ != 0
+
+        self.cube_before[self.zero_mask] = np.nan      #Replace zero with NaN
+        self.error_data = self.head_keys['err_data']               #The flux Error data 
+        self.error_data[self.zero_mask] = np.nan
+
         self.aperture_type = aperture_type
         
         self.primaryDict= self.head_keys['primaryDict']
@@ -55,7 +66,6 @@ class cube_handler:
         self.CRVAL3 = self.head_keys['CRVAL3']
         self.CDELT3 = self.head_keys['CDELT3']
         self.pixel_scale = self.head_keys['pixelScale']
-        self.error_data = self.head_keys['err_data']               #The flux Error data 
         self.CDELT1_pix= self.head_keys['CDELT1']                    #First axis increment per pixel                 
         self.CDELT2_pix= self.head_keys['CDELT2']                    #Second axis increment per pixel                 
         #self.CDELT1_arcsec = self.head_keys['CDELT1']                    #First axis increment per pixel                 
@@ -65,7 +75,6 @@ class cube_handler:
         
         self.instrument = self.head_keys['instrument']
         self.name_band = self.head_keys['cube_name']
-        self.error_data[self.zero_mask] = np.NaN
         self.wcs = WCS( self.headers)
         self.total_flux_before = self.preprocess.totalImageFlux(self.cube_before)
         self.base_r = base_r
@@ -161,6 +170,7 @@ class cube_handler:
         else:
             [self.apers, self.area, self.error] = self.preprocess.AperturePhotometry(self, self.cube_before)
             
+
         #if self.instrument == 'NIRSPEC':
         #    self.apers = np.array(self.apers)/ 206265**2
 
@@ -225,7 +235,7 @@ class cube_handler:
              # width_pix = width / self.pixel_scale
                r_out.append(r_in[i]+width_pix)
         self.cube_after, self.med_sigma, self.annulus, self.annulus_centroid, self.annulus_aperture, self.routs = self.preprocess.subtractUserBackground(self, r_in, r_out)
-        self.cube_after[self.zero_mask] = np.NaN
+        self.cube_after[self.zero_mask] = np.nan
         
         # create the background flux spectrum
         self.background_spectrum = []
@@ -417,7 +427,7 @@ class cube_handler:
         #for i in range(1,len(self.cube_before)):
         #    img = img + self.cube_before[i,:,:]
 
-        img = np.nansum(self.cube_before[0:10,:,:], axis=0)
+        img = np.nanmedian(self.cube_before, axis=0)
         plt.figure()
         plt.subplot(projection = self.wcs.celestial)
         im = plt.imshow(img, origin='lower', norm=LogNorm())
