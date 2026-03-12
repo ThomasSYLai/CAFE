@@ -6,6 +6,7 @@ import astropy.units as u
 #################################
 ### Feature functions         ###
 #################################
+"""
 def pah_drude(path='tables/'):
     ''' Make initial PAH profile structure
 
@@ -31,7 +32,6 @@ def pah_drude(path='tables/'):
     # Set feature peaks to the values obtained using PAHFIT (Smith et
     # al. 2006) to fit the mean starburst spectrum of Brandl et al. (2006).
     #         PEAK           WAVE   N  COMPLEX
-    """
     peak = np.asarray([0.00000000, #$ ;;  3.30   0   0
             0.00000000, #$ ;;  3.40   26  0
             0.06159884, #$ ;;  5.27   1   1
@@ -64,13 +64,12 @@ def pah_drude(path='tables/'):
             0.25877291, #$ ;; 17.87  23  16
             0.31397021, #$ ;; 18.92  24  17
             0.85513299]) #  ;; 33.10  25  18
-    """
     #p_3_6_12112 = 0.064
     #peak[idx3] = (gam[idx6]/gam[idx3])*p_3_6_12112 / (wave0[idx6]/wave0[idx3])*peak[idx6]
     return {'wave0':wave0, 'gamma':gam, 'peak':peak, 'complex':comp}
+"""
 
-
-def gauss_flux(wave, gauss, ext=None):
+def gauss_prof(wave, gauss, ext=None):
     ''' Compute the flux from a gaussian profile
 
     Arguments:
@@ -83,8 +82,8 @@ def gauss_flux(wave, gauss, ext=None):
     A1 = np.asarray(gauss[0]) # wave0
     gam = np.asarray(gauss[1]) # width in gamma
 
-    gam[gam<1e-5] = 1e-5  ### Minimum FWHM (um) - error avoidance
-    A0[A0<1e-14] = 1e-14  ### Avoid zeros/underflows
+    #gam[gam<1e-5] = 1e-5  ### Minimum FWHM (um) - error avoidance
+    #A0[A0<1e-14] = 1e-14  ### Avoid zeros/underflows
     A2 = A1*gam / 2.35482 ### From FWHM to sigma
     flux = np.zeros(wave.size)
 
@@ -174,7 +173,7 @@ def drude_prof(wave, drude, ext=None):
 
 
 def drude_int_fluxes(wave, drude, ext=None, scale=1.0, flxunits=u.Jy, wvunits=u.um):
-    ''' Computes integrated fluxe of each line in drude, with optional extinction
+    ''' Computes integrated flux of each line in drude, with optional extinction
 
     Arguments:
     wave -- array of wavelengths to compute fluxes
@@ -190,8 +189,8 @@ def drude_int_fluxes(wave, drude, ext=None, scale=1.0, flxunits=u.Jy, wvunits=u.
     '''
     if ext is None:
         ext = np.ones(wave.shape)
-    int_fluxes = np.empty(len(drude[0]))
-    totflux = np.empty(wave.shape)
+    int_fluxes = np.zeros(len(drude[0]))
+    totflux = np.zeros(wave.shape)
     wave = wave*wvunits
     for i in range(len(int_fluxes)):
         ### Get parameters for specific line
@@ -201,8 +200,8 @@ def drude_int_fluxes(wave, drude, ext=None, scale=1.0, flxunits=u.Jy, wvunits=u.
         flux = drude_prof(wave.value, lpars, ext=ext)
         totflux+=flux
         ### Units
-        flux = (flux*flxunits).to(u.erg/u.cm**2/u.s/wvunits, equivalencies=u.spectral_density(wave))
+        flux = (flux*flxunits).to(u.W/u.m**2/wvunits, equivalencies=u.spectral_density(wave))
         ### Integrate
-        int_fluxes[i] = np.trapz(flux.value, wave.value)
+        int_fluxes[i] = np.trapezoid(flux.value, wave.value)
 
-    return int_fluxes*(u.erg/u.cm**2/u.s)
+    return int_fluxes*(u.W/u.m**2)
