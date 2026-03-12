@@ -4,7 +4,6 @@ Created on Thu Jun 10 13:06:50 2021
 
 @author: roub
 """
-
 import sys
 import numpy as np
 from astropy.io import fits
@@ -24,6 +23,8 @@ from photutils.aperture import RectangularAperture
 import os
 import glob
 
+# import ipdb
+
 current_path = os.path.abspath(os.getcwd())
 from photutils.aperture import CircularAperture
 
@@ -38,8 +39,8 @@ class cube_preproc:
 #        return base_r * (target_l/base_l) * (base_pixel_scale/pixel_scale)
 
     #Load a subcube
-    def getFITSData(self, cube_file):
-        print('Load file: '+cube_file)
+    def getFITSData(self, cube_file, silent=False):
+        if silent is False: print('Load file: '+cube_file)
         hdu_list = fits.open(cube_file)
         # hdu_list.info()
         SCI = hdu_list['SCI']
@@ -58,10 +59,11 @@ class cube_preproc:
         else:
             cube_name = 'ch' + str(hdu_list['PRIMARY'].header['CHANNEL']) + '_' + str(hdu_list['PRIMARY'].header['BAND'])
         output_file_name = str(hdu_list['PRIMARY'].header['OBS_ID'])
-        hdu_list.close()
-        
-        cube_data = fits.getdata(cube_file)
+
+        cube_data = SCI.data
         headers = SCI.header
+
+        hdu_list.close()        
 
         if 'MJD-BEG' in headers: del headers[10:16]
         if 'REFFRAME' in headers: del headers[12:30]
@@ -140,10 +142,11 @@ class cube_preproc:
             cube_name = 'ch' + str(hdu_list[instkey].header['CHANNEL'])+ '_' + str(hdu_list[instkey].header['BAND'])
         output_file_name = str(hdu_list[instkey].header['OBS_ID'])
             
+        cube_data = SCI.data
+        headers = SCI.header
+
         hdu_list.close()
         
-        cube_data = fits.getdata(cube_file)
-        headers = SCI.header
 
         if 'MJD-BEG' in headers: del headers[10:16]
         if 'REFFRAME' in headers: del headers[12:30]
@@ -266,7 +269,7 @@ class cube_preproc:
         for i in range(len(subcube.ls)):
             [x, y] = subcube.xys[i] # in image coordinates
             
-            sky = subcube.wcs.pixel_to_world(x, y, subcube.ls[i])
+            sky = subcube.wcs.pixel_to_world(x, y, subcube.ls[i]*u.um)
             res.append(sky)
 
         return res 
@@ -295,7 +298,7 @@ class cube_preproc:
         
         c1 = SkyCoord(subcube.user_ra, subcube.user_dec, unit="deg")  #### TDS
         xx, yy, zz = subcube.wcs.world_to_pixel(c1, subcube.ls[0]*u.um)   #### TDS
-        sliceIm = np.nansum(image[0:10,:,:], axis=0)
+        sliceIm = np.nanmedian(image, axis=0)
         x, y = self.userCentroid(sliceIm, xx, yy) #, hbox_x=9, hbox_y=9)
         #x, y = self.imageCentroid(sliceIm)
         res = []
@@ -340,7 +343,7 @@ class cube_preproc:
                 aper = RectangularAperture([x,y], r[i]*2., r[i]*2.)
             apers.append(aper)
 
-        phot_table = aperture_photometry(data, apers, wcs=w, error=error)
+        phot_table = aperture_photometry(data, apers, wcs=w.celestial, error=error)
         rs_photometry = []
         rs_error = []
         rs_area = []
@@ -458,7 +461,7 @@ class cube_preproc:
             for i in range(len(the_cube.cube_before)):
                 plane = the_cube.cube_before[i,:,:]
                 jj, kk= self.userCentroid(plane,x,y)
-                sky = the_cube.wcs.pixel_to_world(jj,kk,l_c)
+                sky = the_cube.wcs.pixel_to_world(jj,kk,l_c*u.um)
                 sky_list.append(sky)
                 res_cubes_all.append( res_cubes[0] )
                 
@@ -732,7 +735,7 @@ class cube_preproc:
     
     
     #%%    
-    def getSubcubesAllAppended(self,subcubes,background):
+    def getSubcubesAllAppended(self, subcubes, background):
         all_rs = []
         all_ls = []
         all_apers = []
@@ -771,21 +774,22 @@ class cube_preproc:
     
 
     #%%Grid in Arcseconds 
-    def createGridInArcSec(self, user_ra, user_dec, gridPoints_dist, gridPointsX, gridPointsY, cube, r_ap, pointSource, l_ap):
+    def createGridInArcSec(self, user_ra, user_dec, gridstep_dist, gridPointsX, gridPointsY, cube, r_ap, pointSource, l_ap):
         NX = np.arange(0,gridPointsX)
         NY = np.arange(0,gridPointsY)
         
-        gridPoints_pix = gridPoints_dist / cube.pixel_scale
+        gridstep_dist_pix = gridstep_dist / cube.pixel_scale
         if r_ap == -1:
-            raise ValueError('For some reason the radius is not defined') 
-            r_ap = gridPoints_dist/2
-            r_pix = ((gridPoints_pix/2)) 
+            print('Warning: The spaxel size is not defined. Using as default the distance between spaxels.') 
+            r_ap = gridstep_dist/2
+            r_pix = gridstep_dist_pix/2
         else:    
             r_pix = r_ap / cube.pixel_scale
+
         c1 = SkyCoord(user_ra, user_dec, unit="deg")  # defaults to      
         user_x, user_y, user_z = cube.wcs.world_to_pixel(c1, cube.ls[0]*u.um)
-        grids_xs = user_x + (NX - (gridPointsX-1)/2) * gridPoints_pix
-        grids_ys = user_y + (NY - (gridPointsY-1)/2) * gridPoints_pix
+        grids_xs = user_x + (NX - (gridPointsX-1)/2) * gridstep_dist_pix
+        grids_ys = user_y + (NY - (gridPointsY-1)/2) * gridstep_dist_pix
         
         
         sky_list = []
@@ -796,16 +800,16 @@ class cube_preproc:
         sky_dec = []
         for i in range(len(grids_xs)):
             for j in range(len(grids_ys)):
-                sky = cube.wcs.pixel_to_world(grids_xs[i], grids_ys[j], 0)
+                sky = cube.wcs.pixel_to_world(grids_xs[i], grids_ys[j], 0*u.um)
                 #coord_grid.append(sky)   
-                sky_list.append(sky)
+                sky_list.append(sky[0])
                 pixels_list.append([i,j])
                 names.append(str(i)+"_"+str(j))
                 sky_ra.append(sky[0].ra)
                 sky_dec.append(sky[0].dec)
                 
         # for i in range(len(subchannels)):                
-        #     self.plotGridSubchanel( user_ra, user_dec, gridPoints_dist, gridPointsX, gridPointsY, subchannels[i], r)
+        #     self.plotGridSubchanel( user_ra, user_dec, gridstep_dist, gridPointsX, gridPointsY, subchannels[i], r)
         # params_path = current_path+"/Params"
         # self.delteFilesatPath(params_path)
         # self.writeParamsFiles(coord_grid,r,l_ap,pointSource)        
@@ -814,24 +818,24 @@ class cube_preproc:
         
 
 #%%   
-    def plotGrid(self, cube, user_ra, user_dec, gridPoints_dist, gridPointsX, gridPointsY, r_as, output_path, output_filebase_name):
+    def plotGrid(self, cube, user_ra, user_dec, gridstep_dist, gridPointsX, gridPointsY, r_as, output_path, output_filebase_name):
 
         NX = np.arange(0,gridPointsX)
         NY = np.arange(0,gridPointsY)
         from matplotlib.patches import Rectangle
         
-        gridPoints_pix = gridPoints_dist / cube.pixel_scale
+        gridstep_dist_pix = gridstep_dist / cube.pixel_scale
         if r_as == -1:
-            r_as = gridPoints_dist/2
-            r_pix = ((gridPoints_pix/2)) 
-            # print("EXOUME grid_points: ", gridPoints_pix, " r: ", r_pix)
+            r_as = gridstep_dist/2
+            r_pix = gridstep_dist_pix/2
+            # print("EXOUME grid_points: ", gridstep_dist_pix, " r: ", r_pix)
         else:    
             r_pix = r_as / cube.pixel_scale
-            # print("EXOUME grid_points: ", gridPoints_pix, " xeirokinhto r: ", r_pix)
+            # print("EXOUME grid_points: ", gridstep_dist_pix, " xeirokinhto r: ", r_pix)
         c1 = SkyCoord(user_ra, user_dec, unit="deg")  # defaults to      
         user_x, user_y, user_z = cube.wcs.world_to_pixel(c1, cube.ls[0]*u.um)
-        grids_xs = user_x +(NX - (gridPointsX-1)/2) * gridPoints_pix
-        grids_ys = user_y +(NY - (gridPointsY-1)/2) * gridPoints_pix
+        grids_xs = user_x + (NX - (gridPointsX-1)/2) * gridstep_dist_pix
+        grids_ys = user_y + (NY - (gridPointsY-1)/2) * gridstep_dist_pix
         
         sky_list = []
         pixels_list = []
@@ -839,36 +843,39 @@ class cube_preproc:
         names = []
         for i in range(len(grids_xs)):
             for j in range(len(grids_ys)):
-                sky = cube.wcs.pixel_to_world(grids_xs[i], grids_ys[j],0)
-                #coord_grid.append(sky)   
-                sky_list.append(sky)
+                sky = cube.wcs.pixel_to_world(grids_xs[i], grids_ys[j],0*u.um)
+                #coord_grid.append(sky)
+                sky_list.append(sky[0])
                 pixels_list.append([grids_xs[i], grids_ys[j]])
                 names.append(str(i)+"_"+str(j))
         
-        img = np.nansum(cube.cube_before[0:10], axis=0)
+        img = np.nanmedian(cube.cube_before, axis=0)
         #img = cube.cube_before[0,:,:]
         #for i in range(1,len(cube.cube_before)):
         #    img = img + cube.cube_before[i,:,:]
         
-        plt.figure()
-        plt.subplot(projection = cube.wcs.celestial)
-        im = plt.imshow(img, origin='lower', norm=LogNorm()) #, origin='lower'
+        plt.figure(dpi=200)
+        ax = plt.subplot(projection = cube.wcs.celestial)
+        im = plt.imshow(img, origin='lower', norm=LogNorm())
         plt.colorbar(im)
-        plt.plot(user_x, user_y, 'o', color="red", label="User Input Centroid")
-
+        #plt.plot(user_x, user_y, 'o', color="red", label="User Input Centroid")
+        plt.plot(c1.ra.value, c1.dec.value, 'o', color="red", label="User Input Centroid", transform=ax.get_transform('world'))
+        
         for i in range(len(pixels_list)):
-            # xx = pixels_list[i][0] - (r_pix/2)
-            xx = pixels_list[i][0] - r_pix
-            yy = pixels_list[i][1] - r_pix
-            # yy = pixels_list[i][1] - (r_pix/2)
-            plt.gca().add_patch(Rectangle([xx,yy], 2*r_pix, 2*r_pix, linewidth=1, edgecolor='r', facecolor='none'))
-            plt.plot(pixels_list[i][0], pixels_list[i][1], 'bo', markersize=3)
-            plt.title(cube.name_band)
+            #xx = pixels_list[i][0] - r_pix
+            #yy = pixels_list[i][1] - r_pix
+            #plt.gca().add_patch(Rectangle([pixels_list[i][0] - r_pix, pixels_list[i][1] - r_pix], 2*r_pix, 2*r_pix, linewidth=1, edgecolor='r', facecolor='none'))
+            plt.gca().add_patch(Rectangle([sky_list[i].ra.value - r_as/3600, sky_list[i].dec.value - r_as/3600], 2*r_as/3600, 2*r_as/3600, linewidth=1, edgecolor='r', facecolor='none', transform=ax.get_transform('world')))
+            #plt.plot(pixels_list[i][0], pixels_list[i][1], 'bo', markersize=3)
+            plt.plot(sky_list[i].ra.value, sky_list[i].dec.value, 'bo', markersize=3, transform=ax.get_transform('world'))
+            #print(sky_list[i].ra.value, sky_list[i].dec.value)
+            
+        plt.title(cube.name_band)
         plt.legend()
         plt.savefig(output_path+output_filebase_name+'_'+cube.name_band+'.png')
         #plt.show()
         plt.close()
-         
+        
         return sky_list, pixels_list, names            
             
     
@@ -967,7 +974,7 @@ class cube_preproc:
     #            print('Stitching', cubesNames[i], 'and', cubesNames[i+1])
     #        else:
     #            #print('There is no stitching ratio between', cubesNames[i], 'and', cubesNames[i+1])
-    #            allRatio.append(np.NaN)
+    #            allRatio.append(np.nan)
     #    print('Stitching ratios:', allRatio)
     #    
     #    return allRatio        
@@ -1051,7 +1058,7 @@ class cube_preproc:
 
         #if np.isnan(ratio_list[idx]): #if there is no spectrum there
         #
-        #    return [np.NaN] * len(spectrum)
+        #    return [np.nan] * len(spectrum)
         #
         #else:
         #    
